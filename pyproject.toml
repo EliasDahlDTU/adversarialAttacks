@@ -8,7 +8,7 @@ version = "0.1.0"
 authors = [
   { name = "Your Name", email = "your.email@example.com" },
 ]
-description = "A study of adversarial attacks in machine learning"
+description = "Adversarial attacks for protecting creative works from AI scraping"
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
@@ -18,6 +18,15 @@ dependencies = [
     "matplotlib>=3.5.0",
     "tqdm>=4.65.0",
     "pillow>=8.0.0",
+    "pandas>=1.5.0",
+    "scikit-learn>=1.0.0",
+    "tensorboard>=2.10.0",
+    "torchattacks>=3.4.0",  # Popular adversarial attack implementations
+    "foolbox>=3.3.0",      # Additional attack implementations
+    "lpips>=0.1.4",        # Perceptual similarity metrics
+    "opencv-python>=4.5.0", # Image processing
+    "jupyter>=1.0.0",      # For notebooks
+    "seaborn>=0.12.0",     # Enhanced visualizations
 ]
 
 [tool.pytest.ini_options]
