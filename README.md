@@ -13,28 +13,25 @@ This project investigates the use of adversarial attacks as a tool for protectin
 ```
 .
 ├── data/
-│   ├── raw/              # ImageNet dataset
-│   ├── processed/        # Processed and adversarial examples
-│   └── models/           # Saved model checkpoints
+│   ├── raw/                      # ImageNet100 dataset
+│   ├── processed/                # Preprocessed dataset
+│   ├── best_models/              # Best VGG and ResNet model after finetuning
+│   └── adversarial_examples/     # Generated adversarial examples from different methods
+│       ├── FGSM/                 
+│       ├── CW/                   
+│       └── PGD/                  
 ├── src/
 │   └── adversarialAttacks/
-│       ├── data/         # Dataset loading and processing
-│       ├── models/       # Model architectures (CNNs)
-│       ├── attacks/      # FGSM, PGD, and CW implementations
-│       ├── training/     # Training utilities
-│       ├── evaluation/   # Evaluation metrics
-│       └── visualization/# Visualization tools
+│       ├── preprocess_data.py   # Dataset preprocessing
+│       ├── models.py            # Model architecture and pretrained weight implementation
+│       ├── attacks.py           # FGSM, PGD, and CW implementations and generation of adversarial examples
+│       ├── training.py          # Fine-tuning script for VGG and ResNet
+│       ├── evaluation.py        # Evaluation metrics
+│       └── visualization.py  # Visualization tools
 └── notebooks/           # Experiment notebooks
 ```
 
 ## Setup
-
-### Prerequisites
-- Python 3.8 or higher
-- Git
-- A package manager (pip)
-
-### Installation Steps
 
 1. Clone the repository:
 ```bash
@@ -55,14 +52,6 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
-
-The project uses `requirements.txt` for dependency management with exact package versions to ensure reproducibility. Key dependencies include:
-- Core ML: torch, torchvision, numpy, scikit-learn
-- Data processing: pillow, opencv-python
-- Visualization: matplotlib, seaborn
-- Progress tracking: tqdm, tensorboard
-- Adversarial attacks: torchattacks, foolbox
-- Development tools: jupyter
 
 ### Kaggle Authentication Setup
 
@@ -96,107 +85,88 @@ python -c "import adversarialAttacks"
 
 If no error appears, the installation was successful.
 
-### Download and Prepare Dataset
-
-After setting up Kaggle authentication:
-
-```bash
-# Download and organize the dataset
-python src/adversarialAttacks/data/download_data.py
-
-# Preprocess the images (resize to 224×224 and standardize)
-python src/adversarialAttacks/data/preprocess_data.py
-```
-
 ## Data Pipeline
 
-The project uses ImageNet-100, a subset of ImageNet containing 100 classes with 1,300 images per class. The dataset is structured as follows:
+The project uses ImageNet-100, a subset of ImageNet containing 100 classes with 1,300 images per class. Since this project focuses on fine-tuning pre-trained models (VGG-16 and ResNet-50) rather than training from scratch, we don't need the full ImageNet dataset. The models are already pre-trained on the ImageNet-1000 dataset, and we're only adapting their final layers to work with our subset of 100 classes. The dataset is structured as follows:
 
 ### Dataset Structure
 - Training data: 100 classes × 1,300 images
-- Validation data: 100 classes with corresponding validation images
+- Validation data: 100 × 50 images
 - Image size: Preprocessed to 224×224 pixels
 
-### Data Requirements and Splitting
-
-Since this project focuses on fine-tuning pre-trained models (VGG-16 and ResNet-50) rather than training from scratch, we don't need the full ImageNet dataset. The models are already pre-trained on the full ImageNet-1000 dataset, and we're only adapting their final layers to work with our subset of 100 classes.
 
 Our data processing approach:
 1. **Download and Organize**: First, we download all ImageNet-100 data (both training and validation sets)
-2. **Pool All Data**: We combine all images from both sets into a single pool (~130,000 images total)
+2. **Pool All Data**: We combine all images from both sets into a single pool (135,000 images total)
 3. **Split for Experiments**: From this pooled data, we create:
-   - **Training Set**: ~80% of the data (approximately 104,000 images)
-   - **Testing Set**: ~20% of the data (approximately 26,000 images)
-4. **Class Balance**: We maintain class balance in both sets (approximately 1,040 training images and 260 test images per class)
-
-This split provides sufficient data to:
-1. Fine-tune the models to establish a good baseline performance on our 100 classes
-2. Have enough test samples to generate adversarial examples and measure their impact
+   - **Training Set**: 80% of the data (108,000 images)
+   - **Testing Set**: 20% of the data (27,000 images)
+4. **Class Balance**: We maintain class balance in both sets (approximately 1,080 training images and 270 test images per class)
 
 The data splitting is handled in the preprocessing script, which ensures consistent splits across experiments.
 
-### Data Processing Scripts
+### Data Download and Preprocessing
+1. Go to https://www.kaggle.com/datasets/ambityga/imagenet100 and download the zip-file containing the dataset.
+2. Place the zip-file in the data\raw folder and unzip it.
 
-1. **Download Script** (`src/adversarialAttacks/data/download_data.py`):
-   ```bash
-   python src/adversarialAttacks/data/download_data.py
-   ```
-   - Downloads ImageNet-100 dataset from Kaggle
-   - Organizes the training data (merges 4 training folders into one structure)
-   - Creates a clean directory structure in `data/raw/`
-
-2. **Preprocessing Script** (`src/adversarialAttacks/data/preprocess_data.py`):
-   ```bash
-   python src/adversarialAttacks/data/preprocess_data.py
-   ```
-   - Resizes all images to 224×224 pixels
-   - Applies standardization
-   - Saves processed images to `data/processed/`
-
-### Directory Structure After Processing
+The unpacked file-structure should look as follows (This is just how the creator of the sub-dataset decided to structure it, we will improve):
 ```
 data/
 ├── raw/
-│   ├── train/
+│   ├── train.X1/
 │   │   ├── class_1/
 │   │   ├── class_2/
 │   │   └── ...
-│   └── val/
+│   ├── train.X2/
+│   │   ├── class_26/
+│   │   ├── class_27/
+│   │   └── ...
+│  ...
+│   ├── train.X4/
+│   │   ├── class_76/
+│   │   ├── class_77/
+│   │   ├── ...
+│   │   └── class_100/
+│   └── val.X/
 │       ├── class_1/
 │       ├── class_2/
-│       └── ...
+│       ├── ...
+│       └── class_100/
+└── processed/
+```
+
+3. Now we preprocess the raw data with the following script:
+   ```bash
+   python src/adversarialAttacks/data/preprocess_data.py
+   ```
+This:
+- Resizes all images to 224×224 pixels
+- Applies standardization to images
+- Saves preprocessed images to `data/processed/`
+
+The processed file-structure should look as follows :
+```
+data/
+├── raw/
 └── processed/
     ├── train/
     │   ├── class_1/
     │   ├── class_2/
-    │   └── ...
+    │   ├── ...
+    │   └── class_100/
     └── val/
         ├── class_1/
         ├── class_2/
-        └── ...
+        ├── ...
+        └── class_100/
 ```
 
-## Key Components
+## Pretrained Models
 
-1. **Dataset**: ImageNet-100 subset with 100 diverse image categories
-2. **Pre-trained Models**: 
-   - VGG-16: Fine-tuned from ImageNet-1000 to our 100 classes
-   - ResNet-50: Fine-tuned from ImageNet-1000 to our 100 classes
-3. **Attacks**: 
-   - Fast Gradient Sign Method (FGSM)
-   - Projected Gradient Descent (PGD)
-   - Carlini & Wagner (CW)
-4. **Evaluation Metrics**:
-   - Model accuracy drop under attack
-   - Confidence scores
-   - Attack transferability
-   - Visual quality metrics
+We have two models bla bla bla ... Pytorch implementation ... ...
 
-## Usage
+## Fine-tuning / training
+we fine-tune the models with 108k 
 
-See the `notebooks/` directory for example usage and experiments:
-- `01_dataset_exploration.ipynb`: ImageNet-100 dataset analysis
-- `02_model_finetuning.ipynb`: Fine-tuning VGG-16 and ResNet-50
-- `03_adversarial_attacks.ipynb`: Implementation of attacks
-- `04_transferability_study.ipynb`: Attack transferability analysis
-- `05_adversarial_training.ipynb`: Defense mechanisms study
+
+## Adversarial 

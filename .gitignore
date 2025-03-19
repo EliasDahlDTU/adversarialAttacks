@@ -36,8 +36,21 @@ ENV/
 # Data
 data/raw/*
 data/processed/*
-!data/raw/.gitkeep
-!data/processed/.gitkeep
+data/best_models/*
+data/adversarial_examples/FGSM/*
+data/adversarial_examples/CW/*
+data/adversarial_examples/PGD/*
 
 # Logs
 *.log
+
+# But keep the .gitkeep files
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/best_models/.gitkeep
+!data/adversarial_examples/FGSM/.gitkeep
+!data/adversarial_examples/CW/.gitkeep
+!data/adversarial_examples/PGD/.gitkeep
+
+# Jupyter Notebook
+.ipynb_checkpoints
