@@ -51,21 +51,18 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-3. Install the project and all dependencies:
+3. Install dependencies:
 ```bash
-pip install -e .
+pip install -r requirements.txt
 ```
 
-This command will read the `pyproject.toml` file and install all required packages, including:
+The project uses `requirements.txt` for dependency management with exact package versions to ensure reproducibility. Key dependencies include:
 - Core ML: torch, torchvision, numpy, scikit-learn
 - Data processing: pillow, opencv-python
 - Visualization: matplotlib, seaborn
 - Progress tracking: tqdm, tensorboard
 - Adversarial attacks: torchattacks, foolbox
-- Dataset download: kaggle
 - Development tools: jupyter
-
-The installation uses the project's `pyproject.toml` file, which ensures that all dependencies are installed with compatible versions. You don't need to manually install any additional packages.
 
 ### Kaggle Authentication Setup
 
