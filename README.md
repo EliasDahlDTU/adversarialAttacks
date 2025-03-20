@@ -41,11 +41,11 @@ cd adversarial-attacks
 
 2. Create a virtual environment and activate it:
 ```bash
-python -m venv venv
+python -m venv adversarial_attacks
 # On Windows:
-venv\Scripts\activate
+adversarial_attacks\Scripts\activate
 # On Linux/Mac:
-source venv/bin/activate
+source adversarial_attacks/bin/activate
 ```
 
 3. Install dependencies:
