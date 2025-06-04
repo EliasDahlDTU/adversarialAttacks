@@ -4,10 +4,11 @@ from torchvision import transforms
 import os
 from PIL import Image
 import numpy as np
+from typing import Tuple, Dict, List, Optional
 
 class ImageDataset(Dataset):
     """Custom Dataset for loading preprocessed images."""
-    def __init__(self, data_dir, transform=None, split='train'):
+    def __init__(self, data_dir: str, transform: Optional[callable] = None, split: str = 'train'):
         """
         Args:
             data_dir (str): Path to data directory
@@ -16,11 +17,22 @@ class ImageDataset(Dataset):
         """
         self.data_dir = os.path.join(data_dir, split)
         self.transform = transform
-        self.classes = sorted(os.listdir(self.data_dir))
+        
+        # Get class names from directory structure
+        try:
+            self.classes = sorted([d for d in os.listdir(self.data_dir) 
+                                 if os.path.isdir(os.path.join(self.data_dir, d))])
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Directory not found: {self.data_dir}")
+        
+        if not self.classes:
+            raise ValueError(f"No class directories found in {self.data_dir}")
+            
         self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
         
-        self.images = []
-        self.labels = []
+        # Initialize lists to store paths and labels
+        self.images: List[str] = []
+        self.labels: List[int] = []
         
         # Load all image paths and labels
         for class_name in self.classes:
@@ -32,21 +44,42 @@ class ImageDataset(Dataset):
                 if img_name.lower().endswith(('.png', '.jpg', '.jpeg')):
                     self.images.append(os.path.join(class_dir, img_name))
                     self.labels.append(self.class_to_idx[class_name])
+        
+        # Convert labels to numpy array with explicit dtype
+        self.labels = np.array(self.labels, dtype=np.int64)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.images)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
+        """
+        Args:
+            idx (int): Index of the item to get
+            
+        Returns:
+            tuple: (image, label) where image is a tensor and label is an integer
+        """
+        # Handle negative indexing
+        if idx < 0:
+            idx = len(self) + idx
+            
+        if idx >= len(self) or idx < 0:
+            raise IndexError(f"Index {idx} is out of bounds")
+            
         img_path = self.images[idx]
-        image = Image.open(img_path).convert('RGB')
-        label = self.labels[idx]
+        try:
+            image = Image.open(img_path).convert('RGB')
+        except Exception as e:
+            raise RuntimeError(f"Failed to load image {img_path}: {str(e)}")
+            
+        label = int(self.labels[idx])  # Explicit conversion to int
         
         if self.transform:
             image = self.transform(image)
             
         return image, label
 
-def get_data_transforms():
+def get_data_transforms() -> Tuple[transforms.Compose, transforms.Compose]:
     """Get minimal transforms for already preprocessed images."""
     # Just convert to tensor, since images are already preprocessed
     transform = transforms.Compose([
@@ -55,7 +88,11 @@ def get_data_transforms():
     
     return transform, transform
 
-def get_dataloaders(data_dir, batch_size=32, num_workers=4):
+def get_dataloaders(
+    data_dir: str, 
+    batch_size: int = 32, 
+    num_workers: int = 4
+) -> Tuple[Dict[str, DataLoader], Dict[str, int], List[str]]:
     """
     Create train and validation dataloaders.
     
@@ -65,13 +102,19 @@ def get_dataloaders(data_dir, batch_size=32, num_workers=4):
         num_workers (int): Number of workers for data loading
         
     Returns:
-        dict: Dictionary containing 'train' and 'val' dataloaders and dataset sizes
+        Tuple containing:
+            - Dict with 'train' and 'val' dataloaders
+            - Dict with dataset sizes
+            - List of class names
     """
     transform, _ = get_data_transforms()  # Same transform for both train and val
     
     # Create datasets
-    train_dataset = ImageDataset(data_dir, transform=transform, split='train')
-    val_dataset = ImageDataset(data_dir, transform=transform, split='val')
+    try:
+        train_dataset = ImageDataset(data_dir, transform=transform, split='train')
+        val_dataset = ImageDataset(data_dir, transform=transform, split='val')
+    except Exception as e:
+        raise RuntimeError(f"Failed to create datasets: {str(e)}")
     
     # Create dataloaders
     train_loader = DataLoader(
@@ -100,22 +143,26 @@ def get_dataloaders(data_dir, batch_size=32, num_workers=4):
         'val': len(val_dataset)
     }
     
-    class_names = train_dataset.classes
-    
-    return dataloaders, dataset_sizes, class_names
+    return dataloaders, dataset_sizes, train_dataset.classes
 
 if __name__ == "__main__":
     # Test the dataloaders
     data_dir = "data/processed"  # Adjust this path as needed
-    dataloaders, dataset_sizes, class_names = get_dataloaders(data_dir)
     
-    print(f"Number of classes: {len(class_names)}")
-    print(f"Class names: {class_names}")
-    print(f"Training set size: {dataset_sizes['train']}")
-    print(f"Validation set size: {dataset_sizes['val']}")
-    
-    # Test a batch
-    for images, labels in dataloaders['train']:
-        print(f"Batch shape: {images.shape}")
-        print(f"Labels shape: {labels.shape}")
-        break 
+    try:
+        dataloaders, dataset_sizes, class_names = get_dataloaders(data_dir)
+        
+        print(f"Number of classes: {len(class_names)}")
+        print(f"Class names: {class_names}")
+        print(f"Training set size: {dataset_sizes['train']}")
+        print(f"Validation set size: {dataset_sizes['val']}")
+        
+        # Test a batch
+        for images, labels in dataloaders['train']:
+            print(f"Batch shape: {images.shape}")
+            print(f"Labels shape: {labels.shape}")
+            print(f"Labels dtype: {labels.dtype}")  # Check label data type
+            break
+            
+    except Exception as e:
+        print(f"Error during testing: {str(e)}") 
