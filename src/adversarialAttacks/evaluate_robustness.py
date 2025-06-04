@@ -105,7 +105,7 @@ def main():
     pgd_steps = 10           # Number of PGD iterations
     cw_c = 1.0               # CW constant c
     cw_kappa = 0.0           # CW confidence margin κ
-    cw_max_iter = 10        # CW maximum optimizer steps
+    cw_max_iter = 50       # CW maximum optimizer steps
     cw_lr = 0.01             # CW learning rate
 
     # 6) Which attack types to run
