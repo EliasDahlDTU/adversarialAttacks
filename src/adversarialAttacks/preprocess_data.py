@@ -13,7 +13,7 @@ import random
 def setup_directories(clear_existing: bool = True) -> Tuple[Path, Path, Path, Path]:
     """Create necessary directories if they don't exist and optionally clear them."""
     base_dir = Path("data")
-    raw_dir = base_dir / "raw"
+    raw_dir = base_dir / "raw" / "archive"
     processed_dir = base_dir / "processed"
     
     # Create processed directories
