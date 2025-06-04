@@ -33,9 +33,11 @@ ENV/
 *.swp
 *.swo
 
-# Data
+# Data - but allow model weights!
 data/*
 !data/**/.gitkeep
+!data/best_models/
+!data/best_models/*.pth
 
 # Logs
 *.log
