@@ -8,10 +8,10 @@ from torchvision import transforms
 from pathlib import Path
 
 # Import your models and attack classes
-from src.adversarialAttacks.models import get_model
-from src.adversarialAttacks.attacks.fgsm import FGSM
-from src.adversarialAttacks.attacks.pgd import PGD
-from src.adversarialAttacks.attacks.cw import CW
+from models import get_model
+from attacks.fgsm import FGSM
+from attacks.pgd import PGD
+from attacks.cw import CW
 
 
 def evaluate_metrics(model, attack, dataloader, bound=0.05, num_samples=None):
@@ -105,7 +105,7 @@ def main():
     pgd_steps = 10           # Number of PGD iterations
     cw_c = 1.0               # CW constant c
     cw_kappa = 0.0           # CW confidence margin κ
-    cw_max_iter = 100        # CW maximum optimizer steps
+    cw_max_iter = 10        # CW maximum optimizer steps
     cw_lr = 0.01             # CW learning rate
 
     # 6) Which attack types to run
@@ -128,8 +128,12 @@ def main():
             raise ValueError(f"No checkpoint configured for {model_name}")
 
         # Load the .pth (ensure it was saved via torch.save(model.state_dict(), …))
-        state = torch.load(checkpoint_path, map_location="cpu")
-        model.load_state_dict(state)
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        if "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            # In case someone saved just model.state_dict() without wrapping it:
+            model.load_state_dict(checkpoint)
         
         # Move model to device
         model = model.to(device)
@@ -159,12 +163,12 @@ def main():
             # 1) Compute Robust Accuracy (RA)
             #    Set bound=1.0 so that (change ≤ 1.0) is always true, hence RR ≈ 1.0,
             #    but RA is unaffected by bound. This call returns (ra, rr) but we only care about ra here.
-            ra, _ = evaluate_metrics(model, attack, test_loader, bound=1.0)
+            ra, _ = evaluate_metrics(model, attack, test_loader, bound=1.0, num_samples=500) # test run on 500 samples
             print(f"Robust Accuracy (RA): {ra:.4f}")
 
             # 2) Compute Robust Ratio (RR) at a range of bounds
             for b in bounds:
-                _, rr = evaluate_metrics(model, attack, test_loader, bound=b)
+                _, rr = evaluate_metrics(model, attack, test_loader, bound=b, num_samples=500)  # limit to 500
                 print(f"  Bound = {b:0.2f} → Robust Ratio (RR): {rr:.4f}")
 
 
