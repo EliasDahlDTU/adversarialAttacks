@@ -5,6 +5,8 @@ from torch.optim import lr_scheduler
 import time
 import os
 import matplotlib.pyplot as plt
+import numpy as np
+import random
 
 from models import get_model
 from data_loader import get_dataloaders
@@ -36,7 +38,11 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
         'train_acc': [], 'val_acc': []
     }
 
+    # Calculate average time per epoch for ETA
+    epoch_times = []
+
     for epoch in range(num_epochs):
+        epoch_start = time.time()
         print(f'Epoch {epoch}/{num_epochs - 1}')
         print('-' * 10)
 
@@ -94,6 +100,16 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
                     'scheduler_state_dict': scheduler.state_dict(),
                     'best_acc': best_acc,
                 }, best_model_path)
+
+        # Calculate and display ETA
+        epoch_time = time.time() - epoch_start
+        epoch_times.append(epoch_time)
+        avg_epoch_time = sum(epoch_times) / len(epoch_times)
+        remaining_epochs = num_epochs - (epoch + 1)
+        eta_seconds = avg_epoch_time * remaining_epochs
+        eta_minutes = eta_seconds // 60
+        eta_seconds = eta_seconds % 60
+        print(f'\nETA: {eta_minutes:.0f}m {eta_seconds:.0f}s')
 
         print()
 
@@ -182,6 +198,14 @@ def visualize_predictions(model, dataloader, class_names, num_images=6, device='
     plt.close()
 
 def main():
+    # Set random seeds for reproducibility
+    torch.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(42)
+    random.seed(42)
+    
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")

@@ -12,6 +12,7 @@ import os
 from tqdm import tqdm
 from torch.utils.data import DataLoader, Subset
 import random
+import numpy as np
 
 from models import get_model
 from data_loader import get_dataloaders, ImageDataset
@@ -156,9 +157,13 @@ def fast_train_model(model, dataloaders, dataset_sizes, criterion, optimizer, nu
     return model, best_acc
 
 def main():
-    # Set random seed for reproducibility
-    random.seed(42)
+    # Set random seeds for reproducibility
     torch.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(42)
+    random.seed(42)
     
     # Set device - prioritize GPU!
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
