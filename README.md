@@ -53,38 +53,6 @@ source adversarial_attacks/bin/activate
 pip install -r requirements.txt
 ```
 
-### Kaggle Authentication Setup
-
-To download the dataset, you'll need to set up Kaggle authentication:
-
-1. Create a Kaggle account at https://www.kaggle.com if you don't have one
-2. Go to your account settings: https://www.kaggle.com/settings
-3. Click on "Create New API Token" to download `kaggle.json`
-4. Create the Kaggle config directory:
-   ```bash
-   # On Windows:
-   mkdir %USERPROFILE%\.kaggle
-   # On Linux/Mac:
-   mkdir -p ~/.kaggle
-   ```
-5. Move the downloaded `kaggle.json` to:
-   - Windows: `C:\Users\<username>\.kaggle\kaggle.json`
-   - Linux/Mac: `~/.kaggle/kaggle.json`
-6. Set appropriate permissions (Linux/Mac only):
-   ```bash
-   chmod 600 ~/.kaggle/kaggle.json
-   ```
-
-### Verify Installation
-
-To verify that everything is installed correctly:
-
-```bash
-python -c "import adversarialAttacks"
-```
-
-If no error appears, the installation was successful.
-
 ## Data Pipeline
 
 The project uses ImageNet-100, a subset of ImageNet containing 100 classes with 1,300 images per class. Since this project focuses on fine-tuning pre-trained models (VGG-16 and ResNet-50) rather than training from scratch, we don't need the full ImageNet dataset. The models are already pre-trained on the ImageNet-1000 dataset, and we're only adapting their final layers to work with our subset of 100 classes. The dataset is structured as follows:
@@ -134,6 +102,7 @@ data/
 │       └── class_100/
 └── processed/
 ```
+NB: The zip-file will sometimes unpack into a folder named "archive". If this happens to you, simply move the subfolders directly into the raw data folder.
 
 3. Now we preprocess the raw data with the following script:
    ```bash
