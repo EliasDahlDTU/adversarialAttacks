@@ -141,6 +141,7 @@ def main():
 
         # Instantiate FGSM, PGD, and CW attacks on that model
         fgsm_attack = FGSM(model, epsilon=epsilon, device=device)
+        
         pgd_attack = PGD(
             model,
             epsilon=epsilon,
@@ -170,6 +171,8 @@ def main():
             for b in bounds:
                 _, rr = evaluate_metrics(model, attack, test_loader, bound=b)  # limit to 500
                 print(f"  Bound = {b:0.2f} → Robust Ratio (RR): {rr:.4f}")
+
+
 
 
 if __name__ == "__main__":
