@@ -123,7 +123,9 @@ def main():
         
         # Load finetuned weights 
         if model_name.lower() == "vgg16":
-            checkpoint_path = "data/best_models/fast_ModifiedVGG16.pth"  
+            checkpoint_path = "data/best_models/fast_ModifiedVGG16.pth"
+        elif model_name.lower() == "resnet50":
+            checkpoint_path = "data/best_models/fast_ModifiedResNet50.pth"  
         else:
             raise ValueError(f"No checkpoint configured for {model_name}")
 
