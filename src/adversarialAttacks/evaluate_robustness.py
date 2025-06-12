@@ -123,9 +123,9 @@ def main():
         
         # Load finetuned weights 
         if model_name.lower() == "vgg16":
-            checkpoint_path = "data/best_models/fast_ModifiedVGG16.pth"
+            checkpoint_path = "data/best_models/fast_ModifiedVGG16.pth" # change to model name
         elif model_name.lower() == "resnet50":
-            checkpoint_path = "data/best_models/fast_ModifiedResNet50.pth"  
+            checkpoint_path = "data/best_models/fast_ModifiedResNet50.pth"  # change to model name
         else:
             raise ValueError(f"No checkpoint configured for {model_name}")
 
@@ -178,14 +178,12 @@ def main():
             print(f"\n-- Attack: {atk_name.upper()} --")
 
             # 1) Compute Robust Accuracy (RA)
-            #    Set bound=1.0 so that (change ≤ 1.0) is always true, hence RR ≈ 1.0,
-            #    but RA is unaffected by bound. This call returns (ra, rr) but we only care about ra here.
-            ra, _ = evaluate_metrics(model, attack, test_loader, bound=1.0) # test run on 500 samples
+            ra, _ = evaluate_metrics(model, attack, test_loader, bound=1.0) # set satisfying bound
             print(f"Robust Accuracy (RA): {ra:.4f}")
 
             # 2) Compute Robust Ratio (RR) at a range of bounds
             for b in bounds:
-                _, rr = evaluate_metrics(model, attack, test_loader, bound=b)  # limit to 500
+                _, rr = evaluate_metrics(model, attack, test_loader, bound=b) 
                 print(f"  Bound = {b:0.2f} → Robust Ratio (RR): {rr:.4f}")
 
 
