@@ -1,5 +1,6 @@
 from torchvision.utils import save_image
 import torch
+from pathlib import Path
 
 def save_extreme_examples(model, attack, dataloader, device,
                            out_dir="adv_examples", num_samples=None):

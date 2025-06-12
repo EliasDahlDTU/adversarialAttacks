@@ -4,11 +4,11 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision import transforms
-# from torchvision.utils import save_image
 from pathlib import Path
 
 # Import your models and attack classes
 from models import get_model
+from save_image import save_extreme_examples
 from attacks.fgsm import FGSM
 from attacks.pgd import PGD
 from attacks.cw import CW
@@ -141,6 +141,10 @@ def main():
 
         # Instantiate FGSM, PGD, and CW attacks on that model
         fgsm_attack = FGSM(model, epsilon=epsilon, device=device)
+        save_extreme_examples(
+            model, fgsm_attack, test_loader, device,
+            out_dir="data/adversarial_examples",
+        )
         
         pgd_attack = PGD(
             model,
@@ -149,6 +153,11 @@ def main():
             num_steps=pgd_steps,
             device=device,
         )
+        save_extreme_examples(
+            model, pgd_attack, test_loader, device,
+            out_dir="data/adversarial_examples",
+        )
+        
         cw_attack = CW(
             model,
             c=cw_c,
@@ -157,6 +166,11 @@ def main():
             lr=cw_lr,
             device=device,
         )
+        save_extreme_examples(
+            model, cw_attack, test_loader, device,
+            out_dir="data/adversarial_examples",
+        )    
+    
 
         for atk_name, attack in zip(attack_names, [fgsm_attack, pgd_attack, cw_attack]):
             print(f"\n-- Attack: {atk_name.upper()} --")
