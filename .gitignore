@@ -36,6 +36,9 @@ ENV/
 # Data
 data/*
 !data/**/.gitkeep
+# Ignore contents of data/results, but keep the directory
+data/results/*
+!data/results/.gitkeep
 
 # Logs
 *.log

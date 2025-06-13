@@ -5,6 +5,9 @@ from torch.optim import lr_scheduler
 import time
 import os
 import matplotlib.pyplot as plt
+from tqdm import tqdm
+import json # New import
+from datetime import datetime # New import
 
 from models import get_model
 from data_loader import get_dataloaders
@@ -24,6 +27,20 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
         device: Device to train on
     """
     since = time.time()
+
+    model_type_name = type(model).__name__
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    results_dir = os.path.join('data', 'results')
+    os.makedirs(results_dir, exist_ok=True)
+
+    # Path for the best model (remains in data/best_models)
+    best_model_path = os.path.join('data/best_models', f'best_{model_type_name}.pth')
+    
+    # New paths for history JSON and plot in data/results
+    history_json_path = os.path.join(results_dir, f'{model_type_name}_history_{timestamp}.json')
+    plot_save_path = os.path.join(results_dir, f'{model_type_name}_plot_{timestamp}.png')
+
     best_acc = 0.0
 
     # Create directory for model checkpoints if it doesn't exist
@@ -51,7 +68,7 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
             running_corrects = 0
 
             # Iterate over data
-            for inputs, labels in dataloaders[phase]:
+            for inputs, labels in tqdm(dataloaders[phase], desc=f"{phase} phase", leave=False):
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
@@ -101,15 +118,20 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
     print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
     print(f'Best val Acc: {best_acc:4f}')
 
+    # Save history to JSON
+    with open(history_json_path, 'w') as f:
+        json.dump(history, f, indent=4)
+    print(f"Training history saved to {history_json_path}")
+
     # Plot training history
-    plot_training_history(history)
+    plot_training_history(history, plot_save_path) # Pass the new save path
 
     # Load best model weights
     checkpoint = torch.load(best_model_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     return model, history
 
-def plot_training_history(history):
+def plot_training_history(history, save_path): # Added save_path argument
     """Plot training and validation metrics."""
     plt.figure(figsize=(12, 4))
     
@@ -132,17 +154,20 @@ def plot_training_history(history):
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig('data/training_history.png')
+    plt.savefig(save_path) # Use the save_path argument
     plt.close()
+    print(f"Training plot saved to {save_path}") # Added print statement
 
-def visualize_predictions(model, dataloader, class_names, num_images=6, device='cuda'):
+def visualize_predictions(model, dataloader, class_names, human_readable_label_map, plot_save_path, num_images=6, device='cuda'): # Added human_readable_label_map and plot_save_path
     """
     Visualize model predictions on validation data.
     
     Args:
         model: PyTorch model
         dataloader: DataLoader for validation data
-        class_names: List of class names
+        class_names: List of class directory names (e.g., 'n01234567')
+        human_readable_label_map (dict): Mapping from class directory names to human-readable names
+        plot_save_path (str): Path to save the predictions plot
         num_images: Number of images to visualize
         device: Device to run inference on
     """
@@ -163,7 +188,14 @@ def visualize_predictions(model, dataloader, class_names, num_images=6, device='
                 images_so_far += 1
                 ax = plt.subplot(num_images//2, 2, images_so_far)
                 ax.axis('off')
-                ax.set_title(f'predicted: {class_names[preds[j]]}\ntrue: {class_names[labels[j]]}')
+                
+                predicted_folder_name = class_names[preds[j]]
+                true_folder_name = class_names[labels[j]]
+                
+                predicted_display_name = human_readable_label_map.get(predicted_folder_name, predicted_folder_name)
+                true_display_name = human_readable_label_map.get(true_folder_name, true_folder_name)
+                
+                ax.set_title(f'predicted: {predicted_display_name}\\ntrue: {true_display_name}')
                 
                 # Convert tensor to image (no denormalization needed)
                 img = inputs.cpu().data[j].permute(1, 2, 0)
@@ -172,14 +204,16 @@ def visualize_predictions(model, dataloader, class_names, num_images=6, device='
                 if images_so_far == num_images:
                     model.train(mode=was_training)
                     plt.tight_layout()
-                    plt.savefig('data/predictions.png')
+                    plt.savefig(plot_save_path) # Use the new save path
                     plt.close()
+                    print(f"Predictions plot saved to {plot_save_path}")
                     return
     
     model.train(mode=was_training)
     plt.tight_layout()
-    plt.savefig('data/predictions.png')
+    plt.savefig(plot_save_path) # Use the new save path
     plt.close()
+    print(f"Predictions plot saved to {plot_save_path}")
 
 def main():
     # Set device
@@ -190,9 +224,19 @@ def main():
     data_dir = "data/processed"  # Adjust this path as needed
     dataloaders, dataset_sizes, class_names = get_dataloaders(data_dir)
     print(f"Number of classes: {len(class_names)}")
+
+    # Load human-readable labels
+    labels_json_path = os.path.join("data", "raw", "Labels.json")
+    human_readable_label_map = {}
+    if os.path.exists(labels_json_path):
+        with open(labels_json_path, 'r') as f:
+            human_readable_label_map = json.load(f)
+        print(f"Loaded human-readable labels from {labels_json_path}")
+    else:
+        print(f"Warning: Labels.json not found at {labels_json_path}. Using folder names for predictions plot.")
     
     # Create model
-    model_name = 'vgg16'  # or 'resnet50'
+    model_name = 'resnet50' #'vgg16'  # or 'resnet50'
     model = get_model(model_name, num_classes=len(class_names)).to(device)
     
     # Setup training
@@ -215,12 +259,16 @@ def main():
         criterion,
         optimizer,
         scheduler,
-        num_epochs=25,
+        num_epochs=1, # Make sure this is passed to train_model if it's not using the one from main's scope
         device=device
     )
     
     # Visualize some predictions
-    visualize_predictions(model, dataloaders['val'], class_names)
+    model_type_name = type(model.model).__name__ # Get underlying model name for consistency
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_dir = os.path.join('data', 'results')
+    predictions_plot_save_path = os.path.join(results_dir, f'{model_type_name}_predictions_{timestamp}.png')
+    visualize_predictions(model, dataloaders['val'], class_names, human_readable_label_map, predictions_plot_save_path, device=device)
 
 if __name__ == "__main__":
-    main() 
+    main()
