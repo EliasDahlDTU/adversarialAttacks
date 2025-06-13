@@ -6,9 +6,10 @@ from torchvision.datasets import ImageFolder
 from torchvision import transforms
 from pathlib import Path
 
-# Import your models and attack classes
+# Import models, metrics, and attack classes
 from models import get_model
 from save_image import save_extreme_examples
+from robustness_vs_norm import plot_robustness_vs_norm
 from attacks.fgsm import FGSM
 from attacks.pgd import PGD
 from attacks.cw import CW
@@ -147,6 +148,7 @@ def main():
             model, fgsm_attack, test_loader, device,
             out_dir="data/adversarial_examples",
         )
+        plot_robustness_vs_norm(model, fgsm_attack, test_loader, device)
         
         pgd_attack = PGD(
             model,
@@ -159,6 +161,7 @@ def main():
             model, pgd_attack, test_loader, device,
             out_dir="data/adversarial_examples",
         )
+        plot_robustness_vs_norm(model, pgd_attack, test_loader, device)
         
         cw_attack = CW(
             model,
@@ -171,7 +174,8 @@ def main():
         save_extreme_examples(
             model, cw_attack, test_loader, device,
             out_dir="data/adversarial_examples",
-        )    
+        )
+        plot_robustness_vs_norm(model, cw_attack, test_loader, device)    
     
 
         for atk_name, attack in zip(attack_names, [fgsm_attack, pgd_attack, cw_attack]):
