@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-import torch.nn.functional as F
 
 def plot_robustness_vs_norm(model, attack, dataloader, device, num_samples=None):
     """
