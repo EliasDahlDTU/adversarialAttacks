@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
+from pathlib import Path
 
 def plot_robustness_vs_norm(
     model,
@@ -69,6 +70,10 @@ def plot_robustness_vs_norm(
     # cumulative curves: RA(δ) and RR(δ)
     cum_ra = np.cumsum(ra_sorted) / np.arange(1, len(ra_sorted)+1)
     cum_rr = np.cumsum(rr_sorted) / np.arange(1, len(rr_sorted)+1)
+    
+    # ensure plots/ exists
+    plot_dir = Path("plots")
+    plot_dir.mkdir(exist_ok=True)
 
     # plot
     plt.figure(figsize=(6,4))
@@ -80,4 +85,6 @@ def plot_robustness_vs_norm(
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.show()
+
+    fname = plot_dir / f"{attack.__class__.__name__}_ra_rr_vs_norm.png"
+    plt.savefig(fname)
