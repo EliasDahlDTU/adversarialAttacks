@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision import transforms
 from pathlib import Path
+import math
 
 # Import models, metrics, and attack classes
 from models import get_model
@@ -13,6 +14,25 @@ from robustness_vs_norm import plot_robustness_vs_norm
 from attacks.fgsm import FGSM
 from attacks.pgd import PGD
 from attacks.cw import CW
+
+def normal_ci(p_hat, N, z=1.96):
+    """
+    Compute the confidence interval for a proportion using normal approximation.
+    
+    Args:
+        p_hat (float): Sample proportion (e.g., robust accuracy).
+        N (int): Sample size.
+        z (float): Z-score for the desired confidence level (default is 1.96 for 95% CI).
+    
+    Returns:
+        (lower, upper): Lower and upper bounds of the confidence interval.
+    """
+    if N == 0:
+        return 0.0, 0.0
+    se = math.sqrt(p_hat * (1 - p_hat) / N)
+    lower = max(0.0, p_hat - z * se)
+    upper = min(1.0, p_hat + z * se)
+    return lower, upper
 
 
 def evaluate_metrics(model, attack, dataloader, bound=0.05, num_samples=None):
@@ -183,15 +203,15 @@ def main():
 
             # 1) Compute Robust Accuracy (RA)
             ra, _ = evaluate_metrics(model, attack, test_loader, bound=1.0) # set satisfying bound
-            print(f"Robust Accuracy (RA): {ra:.4f}")
+            print(f"Robust Accuracy (RA): {ra:.4f}"
+                  f"[95% CI: {normal_ci(ra, len(test_dataset))}]")
 
             # 2) Compute Robust Ratio (RR) at a range of bounds
             for b in bounds:
                 _, rr = evaluate_metrics(model, attack, test_loader, bound=b) 
-                print(f"  Bound = {b:0.2f} → Robust Ratio (RR): {rr:.4f}")
-
-
-
+                print(f"  Bound = {b:0.2f} → Robust Ratio (RR): {rr:.4f}"
+                      f"[95% CI: {normal_ci(rr, len(test_dataset))}]")
+                
 
 if __name__ == "__main__":
     main()
