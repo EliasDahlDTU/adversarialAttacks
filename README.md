@@ -35,8 +35,8 @@ This project investigates the use of adversarial attacks as a tool for protectin
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/your-username/adversarial-attacks.git
-cd adversarial-attacks
+git clone https://github.com/EliashDahlDTU/adversarialAttacks.git
+cd adversarialAttacks
 ```
 
 2. Create a virtual environment and activate it:
