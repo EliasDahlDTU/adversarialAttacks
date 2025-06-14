@@ -259,7 +259,7 @@ def main():
         criterion,
         optimizer,
         scheduler,
-        num_epochs=1, # Make sure this is passed to train_model if it's not using the one from main's scope
+        num_epochs=25, # Make sure this is passed to train_model if it's not using the one from main's scope
         device=device
     )
     
