@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import json # New import
 from datetime import datetime # New import
+import copy
+from pathlib import Path
 
 from models import get_model
 from data_loader import get_dataloaders
@@ -15,6 +17,7 @@ from data_loader import get_dataloaders
 def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, scheduler, num_epochs=25, device='cuda'):
     """
     Train a model with learning rate scheduling and model checkpointing.
+    Uses validation set for model selection.
     
     Args:
         model: PyTorch model
@@ -27,31 +30,9 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
         device: Device to train on
     """
     since = time.time()
-
-    model_type_name = type(model).__name__
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    results_dir = os.path.join('data', 'results')
-    os.makedirs(results_dir, exist_ok=True)
-
-    # Path for the best model (remains in data/best_models)
-    best_model_path = os.path.join('data/best_models', f'best_{model_type_name}.pth')
-    
-    # New paths for history JSON and plot in data/results
-    history_json_path = os.path.join(results_dir, f'{model_type_name}_history_{timestamp}.json')
-    plot_save_path = os.path.join(results_dir, f'{model_type_name}_plot_{timestamp}.png')
-
+    best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
-
-    # Create directory for model checkpoints if it doesn't exist
-    os.makedirs('data/best_models', exist_ok=True)
-    best_model_path = os.path.join('data/best_models', f'best_{type(model).__name__}.pth')
-
-    # Training history for plotting
-    history = {
-        'train_loss': [], 'val_loss': [],
-        'train_acc': [], 'val_acc': []
-    }
+    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch}/{num_epochs - 1}')
@@ -60,18 +41,20 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
         # Each epoch has a training and validation phase
         for phase in ['train', 'val']:
             if phase == 'train':
-                model.train()
+                model.train()  # Set model to training mode
             else:
-                model.eval()
+                model.eval()   # Set model to evaluate mode
 
             running_loss = 0.0
             running_corrects = 0
 
             # Iterate over data
-            for inputs, labels in tqdm(dataloaders[phase], desc=f"{phase} phase", leave=False):
+            pbar = tqdm(dataloaders[phase], desc=f'{phase} phase')
+            for inputs, labels in pbar:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
+                # Zero the parameter gradients
                 optimizer.zero_grad()
 
                 # Forward pass
@@ -80,7 +63,7 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
                     _, preds = torch.max(outputs, 1)
                     loss = criterion(outputs, labels)
 
-                    # Backward pass + optimize only in training phase
+                    # Backward + optimize only if in training phase
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
@@ -88,6 +71,12 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
                 # Statistics
                 running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data)
+                
+                # Update progress bar
+                pbar.set_postfix({
+                    'loss': f'{loss.item():.4f}',
+                    'acc': f'{torch.sum(preds == labels.data).item() / inputs.size(0):.4f}'
+                })
 
             if phase == 'train':
                 scheduler.step()
@@ -95,22 +84,24 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
             epoch_loss = running_loss / dataset_sizes[phase]
             epoch_acc = running_corrects.double() / dataset_sizes[phase]
 
-            # Record history
+            print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+
+            # Save history
             history[f'{phase}_loss'].append(epoch_loss)
             history[f'{phase}_acc'].append(epoch_acc.item())
 
-            print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
-
-            # Save best model
+            # Deep copy the model if it's the best validation accuracy
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
+                best_model_wts = copy.deepcopy(model.state_dict())
+                # Save the best model
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'scheduler_state_dict': scheduler.state_dict(),
                     'best_acc': best_acc,
-                }, best_model_path)
+                }, f'data/best_models/best_{type(model.model).__name__}.pth')
 
         print()
 
@@ -118,17 +109,18 @@ def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, schedul
     print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
     print(f'Best val Acc: {best_acc:4f}')
 
-    # Save history to JSON
-    with open(history_json_path, 'w') as f:
-        json.dump(history, f, indent=4)
-    print(f"Training history saved to {history_json_path}")
-
-    # Plot training history
-    plot_training_history(history, plot_save_path) # Pass the new save path
-
     # Load best model weights
-    checkpoint = torch.load(best_model_path)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(best_model_wts)
+    
+    # Save training history
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_dir = Path("data/results")
+    results_dir.mkdir(exist_ok=True)
+    history_path = results_dir / f"{type(model.model).__name__}_training_history_{timestamp}.json"
+    with open(history_path, 'w') as f:
+        json.dump(history, f, indent=4)
+    print(f"Training history saved to {history_path}")
+
     return model, history
 
 def plot_training_history(history, save_path): # Added save_path argument

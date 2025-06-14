@@ -55,29 +55,32 @@ pip install -r requirements.txt
 
 ## Data Pipeline
 
-The project uses ImageNet-100, a subset of ImageNet containing 100 classes with 1,300 images per class. Since this project focuses on fine-tuning pre-trained models (VGG-16 and ResNet-50) rather than training from scratch, we don't need the full ImageNet dataset. The models are already pre-trained on the ImageNet-1000 dataset, and we're only adapting their final layers to work with our subset of 100 classes. The dataset is structured as follows:
+The project uses ImageNet-100, a subset of ImageNet containing 100 classes with 1,350 images per class. Since this project focuses on fine-tuning pre-trained models (VGG-16 and ResNet-50) rather than training from scratch, we don't need the full ImageNet dataset. The models are already pre-trained on the ImageNet-1000 dataset, and we're only adapting their final layers to work with our subset of 100 classes.
 
 ### Dataset Structure
-- Training data: 100 classes × 1,300 images
-- Validation data: 100 × 50 images
+- Total images per class: 1,350 images
 - Image size: Preprocessed to 224×224 pixels
-
+- Data split:
+  - Training set: 80% of data (~1,080 images per class)
+  - Validation set: 10% of data (~135 images per class)
+  - Test set: 10% of data (~135 images per class)
 
 Our data processing approach:
-1. **Download and Organize**: First, we download all ImageNet-100 data (both training and validation sets)
-2. **Pool All Data**: We combine all images from both sets into a single pool (135,000 images total)
+1. **Download and Organize**: First, we download all ImageNet-100 data
+2. **Pool All Data**: We combine all images from all original folders into a single pool (135,000 images total)
 3. **Split for Experiments**: From this pooled data, we create:
    - **Training Set**: 80% of the data (108,000 images)
-   - **Testing Set**: 20% of the data (27,000 images)
-4. **Class Balance**: We maintain class balance in both sets (approximately 1,080 training images and 270 test images per class)
+   - **Validation Set**: 10% of the data (13,500 images)
+   - **Test Set**: 10% of the data (13,500 images)
+4. **Class Balance**: We maintain equal class representation in all splits
 
-The data splitting is handled in the preprocessing script, which ensures consistent splits across experiments.
+The data splitting is handled in the preprocessing script, which ensures consistent and reproducible splits across experiments.
 
 ### Data Download and Preprocessing
 1. Go to https://www.kaggle.com/datasets/ambityga/imagenet100 and download the zip-file containing the dataset.
 2. Place the zip-file in the data\raw folder and unzip it.
 
-The unpacked file-structure should look as follows (This is just how the creator of the sub-dataset decided to structure it, we will improve):
+The unpacked file-structure should look as follows:
 ```
 data/
 ├── raw/
@@ -102,18 +105,20 @@ data/
 │       └── class_100/
 └── processed/
 ```
+
 NB: The zip-file will sometimes unpack into a folder named "archive". If this happens to you, simply move the subfolders directly into the raw data folder.
 
 3. Now we preprocess the raw data with the following script:
    ```bash
-   python src/adversarialAttacks/data/preprocess_data.py
+   python src/adversarialAttacks/preprocess_data.py
    ```
-This:
+This script:
 - Resizes all images to 224×224 pixels
 - Applies standardization to images
+- Splits data into train/val/test sets (80/10/10)
 - Saves preprocessed images to `data/processed/`
 
-The processed file-structure should look as follows :
+The processed file-structure will look as follows:
 ```
 data/
 ├── raw/
@@ -123,7 +128,12 @@ data/
     │   ├── class_2/
     │   ├── ...
     │   └── class_100/
-    └── val/
+    ├── val/
+    │   ├── class_1/
+    │   ├── class_2/
+    │   ├── ...
+    │   └── class_100/
+    └── test/
         ├── class_1/
         ├── class_2/
         ├── ...

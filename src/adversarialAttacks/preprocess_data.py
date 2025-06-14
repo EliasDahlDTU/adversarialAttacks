@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import shutil
 import random
 
-def setup_directories(clear_existing: bool = True) -> Tuple[Path, Path, Path, Path]:
+def setup_directories(clear_existing: bool = True) -> Tuple[Path, Path, Path, Path, Path]:
     """Create necessary directories if they don't exist and optionally clear them."""
     base_dir = Path("data")
     raw_dir = base_dir / "raw"
@@ -19,6 +19,7 @@ def setup_directories(clear_existing: bool = True) -> Tuple[Path, Path, Path, Pa
     # Create processed directories
     processed_train_dir = processed_dir / "train"
     processed_val_dir = processed_dir / "val"
+    processed_test_dir = processed_dir / "test"
     
     # Clear existing processed directories if requested
     if clear_existing and processed_dir.exists():
@@ -27,12 +28,14 @@ def setup_directories(clear_existing: bool = True) -> Tuple[Path, Path, Path, Pa
             shutil.rmtree(processed_train_dir)
         if processed_val_dir.exists():
             shutil.rmtree(processed_val_dir)
+        if processed_test_dir.exists():
+            shutil.rmtree(processed_test_dir)
     
     # Create directories
-    for dir_path in [processed_dir, processed_train_dir, processed_val_dir]:
+    for dir_path in [processed_dir, processed_train_dir, processed_val_dir, processed_test_dir]:
         dir_path.mkdir(parents=True, exist_ok=True)
     
-    return raw_dir, processed_dir, processed_train_dir, processed_val_dir
+    return raw_dir, processed_dir, processed_train_dir, processed_val_dir, processed_test_dir
 
 def resize_and_standardize(img_path: Path, output_path: Path, target_size: Tuple[int, int] = (224, 224)):
     """Resize image to target size and apply standardization."""
@@ -114,46 +117,57 @@ def split_and_process_images(
     all_images_by_class: Dict[str, List[Path]],
     processed_train_dir: Path,
     processed_val_dir: Path,
+    processed_test_dir: Path,
     target_size: Tuple[int, int],
     train_ratio: float = 0.8,
+    val_ratio: float = 0.1,
     seed: int = 42
 ):
-    """Split images into train and test sets, then process them."""
+    """Split images into train, validation and test sets, then process them."""
     random.seed(seed)
     
     # Create class directories in processed folders
     for class_name in all_images_by_class.keys():
         (processed_train_dir / class_name).mkdir(exist_ok=True)
         (processed_val_dir / class_name).mkdir(exist_ok=True)
+        (processed_test_dir / class_name).mkdir(exist_ok=True)
     
     # Collect all processing tasks
     train_tasks = []
     val_tasks = []
+    test_tasks = []
     
-    print("\nSplitting data into train and test sets...")
+    print("\nSplitting data into train, validation and test sets...")
     for class_name, images in all_images_by_class.items():
         # Shuffle images
         random.shuffle(images)
         
-        # Split into train and test
-        split_idx = int(len(images) * train_ratio)
-        train_images = images[:split_idx]
-        val_images = images[split_idx:]
+        # Split into train, validation and test
+        n = len(images)
+        train_idx = int(n * train_ratio)
+        val_idx = int(n * (train_ratio + val_ratio))
+        
+        train_images = images[:train_idx]
+        val_images = images[train_idx:val_idx]
+        test_images = images[val_idx:]
         
         # Create processing tasks
         for img_path in train_images:
-            # Use clean filename (remove 'val_' prefix if present)
             clean_filename = get_clean_filename(img_path)
             output_path = processed_train_dir / class_name / clean_filename
             train_tasks.append((img_path, output_path, target_size))
         
         for img_path in val_images:
-            # Use clean filename (remove 'val_' prefix if present)
             clean_filename = get_clean_filename(img_path)
             output_path = processed_val_dir / class_name / clean_filename
             val_tasks.append((img_path, output_path, target_size))
+            
+        for img_path in test_images:
+            clean_filename = get_clean_filename(img_path)
+            output_path = processed_test_dir / class_name / clean_filename
+            test_tasks.append((img_path, output_path, target_size))
         
-        print(f"Class {class_name}: {len(train_images)} train, {len(val_images)} test")
+        print(f"Class {class_name}: {len(train_images)} train, {len(val_images)} val, {len(test_images)} test")
     
     # Process images in parallel
     num_workers = mp.cpu_count()
@@ -170,8 +184,8 @@ def split_and_process_images(
     train_failed = len(results) - train_successful
     print(f"Processed {train_successful} training images successfully, {train_failed} failed")
     
-    # Process validation/test images
-    print(f"\nProcessing {len(val_tasks)} test images using {num_workers} workers...")
+    # Process validation images
+    print(f"\nProcessing {len(val_tasks)} validation images using {num_workers} workers...")
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         results = list(tqdm(
             executor.map(lambda x: resize_and_standardize(*x), val_tasks),
@@ -180,9 +194,21 @@ def split_and_process_images(
     
     val_successful = sum(1 for r in results if r)
     val_failed = len(results) - val_successful
-    print(f"Processed {val_successful} test images successfully, {val_failed} failed")
+    print(f"Processed {val_successful} validation images successfully, {val_failed} failed")
     
-    return train_successful, val_successful
+    # Process test images
+    print(f"\nProcessing {len(test_tasks)} test images using {num_workers} workers...")
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        results = list(tqdm(
+            executor.map(lambda x: resize_and_standardize(*x), test_tasks),
+            total=len(test_tasks)
+        ))
+    
+    test_successful = sum(1 for r in results if r)
+    test_failed = len(results) - test_successful
+    print(f"Processed {test_successful} test images successfully, {test_failed} failed")
+    
+    return train_successful, val_successful, test_successful
 
 def main():
     parser = argparse.ArgumentParser(description="Preprocess ImageNet-100 dataset")
@@ -190,6 +216,8 @@ def main():
                       help="Target size for image resizing (default: 224)")
     parser.add_argument("--train-ratio", type=float, default=0.8,
                       help="Ratio of data to use for training (default: 0.8)")
+    parser.add_argument("--val-ratio", type=float, default=0.1,
+                      help="Ratio of data to use for validation (default: 0.1)")
     parser.add_argument("--seed", type=int, default=42,
                       help="Random seed for reproducibility (default: 42)")
     parser.add_argument("--no-clear", action="store_true",
@@ -200,11 +228,11 @@ def main():
     
     print(f"Setting up preprocessing pipeline:")
     print(f"- Target image size: {target_size}")
-    print(f"- Train/test split: {args.train_ratio:.0%}/{1-args.train_ratio:.0%}")
+    print(f"- Train/val/test split: {args.train_ratio:.0%}/{args.val_ratio:.0%}/{1-(args.train_ratio+args.val_ratio):.0%}")
     print(f"- Random seed: {args.seed}")
     print(f"- Clear existing processed directories: {not args.no_clear}")
     
-    raw_dir, processed_dir, processed_train_dir, processed_val_dir = setup_directories(clear_existing=not args.no_clear)
+    raw_dir, processed_dir, processed_train_dir, processed_val_dir, processed_test_dir = setup_directories(clear_existing=not args.no_clear)
     
     # Check if raw directories exist
     train_dirs = list(raw_dir.glob("train.X*"))
@@ -222,19 +250,22 @@ def main():
         exit(1)
     
     # Split and process images
-    train_count, val_count = split_and_process_images(
+    train_count, val_count, test_count = split_and_process_images(
         all_images_by_class,
         processed_train_dir,
         processed_val_dir,
+        processed_test_dir,
         target_size,
         train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
         seed=args.seed
     )
     
     print("\nPreprocessing completed!")
     print(f"Processed data location: {processed_dir}")
     print(f"Training images: {train_count}")
-    print(f"Test images: {val_count}")
+    print(f"Validation images: {val_count}")
+    print(f"Test images: {test_count}")
 
 if __name__ == "__main__":
     main() 

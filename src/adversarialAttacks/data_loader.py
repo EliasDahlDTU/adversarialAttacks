@@ -13,7 +13,7 @@ class ImageDataset(Dataset):
         Args:
             data_dir (str): Path to data directory
             transform (callable, optional): Optional transform to be applied on an image
-            split (str): 'train' or 'val' split
+            split (str): 'train', 'val', or 'test' split
         """
         self.data_dir = os.path.join(data_dir, split)
         self.transform = transform
@@ -94,25 +94,26 @@ def get_dataloaders(
     num_workers: int = 4
 ) -> Tuple[Dict[str, DataLoader], Dict[str, int], List[str]]:
     """
-    Create train and validation dataloaders.
+    Create train, validation and test dataloaders.
     
     Args:
-        data_dir (str): Path to data directory containing 'train' and 'val' subdirectories
+        data_dir (str): Path to data directory containing 'train', 'val', and 'test' subdirectories
         batch_size (int): Batch size for training
         num_workers (int): Number of workers for data loading
         
     Returns:
         Tuple containing:
-            - Dict with 'train' and 'val' dataloaders
+            - Dict with 'train', 'val', and 'test' dataloaders
             - Dict with dataset sizes
             - List of class names
     """
-    transform, _ = get_data_transforms()  # Same transform for both train and val
+    transform, _ = get_data_transforms()  # Same transform for all splits
     
     # Create datasets
     try:
         train_dataset = ImageDataset(data_dir, transform=transform, split='train')
         val_dataset = ImageDataset(data_dir, transform=transform, split='val')
+        test_dataset = ImageDataset(data_dir, transform=transform, split='test')
     except Exception as e:
         raise RuntimeError(f"Failed to create datasets: {str(e)}")
     
@@ -120,7 +121,7 @@ def get_dataloaders(
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,  # Still shuffle to randomize training order
+        shuffle=True,  # Shuffle training data
         num_workers=num_workers,
         pin_memory=True
     )
@@ -128,19 +129,29 @@ def get_dataloaders(
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=False,  # Don't shuffle validation data
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,  # Don't shuffle test data
         num_workers=num_workers,
         pin_memory=True
     )
     
     dataloaders = {
         'train': train_loader,
-        'val': val_loader
+        'val': val_loader,
+        'test': test_loader
     }
     
     dataset_sizes = {
         'train': len(train_dataset),
-        'val': len(val_dataset)
+        'val': len(val_dataset),
+        'test': len(test_dataset)
     }
     
     return dataloaders, dataset_sizes, train_dataset.classes
@@ -156,6 +167,7 @@ if __name__ == "__main__":
         print(f"Class names: {class_names}")
         print(f"Training set size: {dataset_sizes['train']}")
         print(f"Validation set size: {dataset_sizes['val']}")
+        print(f"Test set size: {dataset_sizes['test']}")
         
         # Test a batch
         for images, labels in dataloaders['train']:
