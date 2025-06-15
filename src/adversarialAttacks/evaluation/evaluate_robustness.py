@@ -46,7 +46,7 @@ def evaluate_metrics(model, attack, dataloader, bound=0.05, num_samples=None):
     return correct_adv/total, rr_count/total, total
 
 def main():
-    DATA_DIR = Path("data/processed/val")
+    DATA_DIR = Path("data/processed/test")
     
     # Choose device (Windows)
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -56,7 +56,7 @@ def main():
     
     # Load dataset
     transform = transforms.Compose([
-        transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor()
+        transforms.ToTensor()  # Only convert to tensor since images are already preprocessed
     ])
     test_dataset = ImageFolder(DATA_DIR, transform=transform)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
