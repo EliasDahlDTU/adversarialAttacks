@@ -12,6 +12,7 @@ import pandas as pd
 from models import get_model
 from save_image import save_extreme_examples
 from robustness_vs_norm import plot_robustness_vs_norm
+from RR_RA_vs_tol import plot_robustness_vs_tolerance
 from attacks.fgsm import FGSM
 from attacks.pgd import PGD
 from attacks.cw import CW
@@ -64,6 +65,7 @@ def main():
 
     model_names = ["vgg16", "resnet50"]
     bounds = [i/100 for i in range(1,21)]
+    epsilons = [i/100 for i in range(0,21)] # tolerance sweep: 0.00 to 0.20
     attack_constructors = [
         ("FGSM", FGSM, {"epsilon":0.03}),
         ("PGD", PGD, {"epsilon":0.03,"alpha":0.01,"num_steps":10}),
@@ -77,7 +79,44 @@ def main():
         # load state dict...
         for atk_name, atk_cls, atk_kwargs in attack_constructors:
             print(f"\n -- Attack: {atk_name} --")
-            attack = atk_cls(model, device=device, **atk_kwargs)
+            
+            # Sweep over epsilon tolerances (fixed confidence bound)
+            print(" [0/4] sweeping ε tolerance:", end="", flush=True)
+            for eps in epsilons:
+                # re-initialize attack with new epsilon
+                params = dict(atk_kwargs)
+                if atk_name in ('FGSM', 'PGD'):
+                    params['epsilon'] = eps
+                attack_eps = atk_cls(model, device=device, **params)
+                
+                ra_eps, rr_eps, _ = evaluate_metrics(model, attack_eps, test_loader, bound=0.05) # fixed confidence drop bound
+                
+                results.append({
+                    "model": model_name,
+                    "attack": atk_name,
+                    "tolerance": eps,
+                    "metric": "RA_tol",
+                    "value": ra_eps,
+                    "ci_lower": normal_ci(ra_eps, N)[0],
+                    "ci_upper": normal_ci(ra_eps, N)[1]
+                    
+                })
+                results.append({
+                    "model":  model_name,
+                    "attack": atk_name,
+                    "tolerance":  eps,
+                    "metric": "RR_tol",
+                    "value":  rr_eps,
+                    "ci_lower": normal_ci(rr_eps, N)[0],
+                    "ci_upper": normal_ci(rr_eps, N)[1]
+                })
+                print(f" {eps:.2f}", end="", flush=True)
+            print(" (done)")
+
+            # 1) Save examples & plots at default ε
+            attack = atk_cls(model, device=device, **{
+                **atk_kwargs, **({"epsilon": epsilons[3]} if atk_name in ("FGSM","PGD") else {})
+            })
             
             # Save examples & plots
             print("  [1/4] Saving adversarial examples...", end=" ", flush=True)
@@ -132,6 +171,9 @@ def main():
     df = pd.DataFrame(results)
     df.to_csv(out_path, index=False)
     print(f"Saved all metrics to {out_path}")
+    
+    plot_robustness_vs_tolerance(out_path, out_dir=results_dir / "plots")
+    print("tolerance plot saved in results/plots")
 
 if __name__=="__main__":
     main()
