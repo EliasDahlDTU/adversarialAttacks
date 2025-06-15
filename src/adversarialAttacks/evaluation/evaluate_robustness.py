@@ -1,3 +1,4 @@
+# Import libraries
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,11 +9,16 @@ from pathlib import Path
 import math
 import pandas as pd
 
-# Import models, metrics, and attack classes
+# Import models
 from models import get_model
+
+# Import evaluation functions
 from save_image import save_extreme_examples
 from robustness_vs_norm import plot_robustness_vs_norm
 from RR_RA_vs_tol import plot_robustness_vs_tolerance
+from transferability import evaluate_transferability
+
+# Import attacks
 from attacks.fgsm import FGSM
 from attacks.pgd import PGD
 from attacks.cw import CW
@@ -46,51 +52,66 @@ def evaluate_metrics(model, attack, dataloader, bound=0.05, num_samples=None):
         total      += x.size(0)
     return correct_adv/total, rr_count/total, total
 
+def load_checkpoint(model, model_name):
+    """
+    Load fine-tuned weights into model based on its name.
+    """
+    # Map model names to checkpoint paths
+    ckpt_map = {
+        "vgg16": "data/best_models/fast_ModifiedVGG16.pth",
+        "resnet50": "data/best_models/ResNet50.pth"
+    }
+    key = model_name.lower()
+    if key not in ckpt_map:
+        raise ValueError(f"No checkpoint configured for model '{model_name}'")
+    ckpt_path = ckpt_map[key]
+    checkpoint = torch.load(ckpt_path, map_location="cpu")
+    state_dict = checkpoint.get("model_state_dict", checkpoint)
+    model.load_state_dict(state_dict)
+    return model
+
 def main():
     DATA_DIR = Path("data/processed/test")
     
-    # Choose device (Windows)
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # Choose device (MacOS)
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    # select device (Windows)
+    # device   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # select device (MacOS)
+    device   = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    # Load dataset
-    transform = transforms.Compose([
-        transforms.ToTensor()  # Only convert to tensor since images are already preprocessed
-    ])
+    transform    = transforms.Compose([transforms.ToTensor()])
     test_dataset = ImageFolder(DATA_DIR, transform=transform)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
+    test_loader  = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
     N = len(test_dataset)
 
     model_names = ["vgg16", "resnet50"]
-    bounds = [i/100 for i in range(1,21)]
-    epsilons = [i/100 for i in range(0,21)] # tolerance sweep: 0.00 to 0.20
+    bounds      = [i/100 for i in range(1,21)]
+    epsilons    = [i/100 for i in range(0,21)]
     attack_constructors = [
         ("FGSM", FGSM, {"epsilon":0.03}),
-        ("PGD", PGD, {"epsilon":0.03,"alpha":0.01,"num_steps":10}),
-        ("CW",  CW,  {"c":1.0,"kappa":0.0,"max_iter":50,"lr":0.01})
+        ("PGD",  PGD,  {"epsilon":0.03, "alpha":0.01, "num_steps":10}),
+        ("CW",   CW,   {"c":1.0, "kappa":0.0, "max_iter":50, "lr":0.01})
     ]
 
     results = []
     for model_name in model_names:
         print(f"\n==== Evaluating Model: {model_name.upper()} ===")
-        model = get_model(model_name, num_classes=100, pretrained=False).to(device)
-        # load state dict...
+        # Load source model and its checkpoint
+        model_src = get_model(model_name, num_classes=100, pretrained=False).to(device)
+        model_src = load_checkpoint(model_src, model_name).to(device)
+        model_src.eval()
+
         for atk_name, atk_cls, atk_kwargs in attack_constructors:
             print(f"\n -- Attack: {atk_name} --")
-            
-            # Sweep over epsilon tolerances (fixed confidence bound)
+            # 0/4) Sweep ε tolerance
             print(" [0/4] sweeping ε tolerance:", end="", flush=True)
             for eps in epsilons:
-                # re-initialize attack with new epsilon
                 params = dict(atk_kwargs)
-                if atk_name in ('FGSM', 'PGD'):
+                if atk_name in ('FGSM','PGD'):
                     params['epsilon'] = eps
-                attack_eps = atk_cls(model, device=device, **params)
-                
-                ra_eps, rr_eps, _ = evaluate_metrics(model, attack_eps, test_loader, bound=0.05) # fixed confidence drop bound
-                
+                attack_eps = atk_cls(model_src, device=device, **params)
+
+                ra_eps, rr_eps, _ = evaluate_metrics(model_src, attack_eps, test_loader, bound=0.05)
                 results.append({
                     "model": model_name,
                     "attack": atk_name,
@@ -99,55 +120,50 @@ def main():
                     "value": ra_eps,
                     "ci_lower": normal_ci(ra_eps, N)[0],
                     "ci_upper": normal_ci(ra_eps, N)[1]
-                    
                 })
                 results.append({
-                    "model":  model_name,
+                    "model": model_name,
                     "attack": atk_name,
-                    "tolerance":  eps,
+                    "tolerance": eps,
                     "metric": "RR_tol",
-                    "value":  rr_eps,
+                    "value": rr_eps,
                     "ci_lower": normal_ci(rr_eps, N)[0],
                     "ci_upper": normal_ci(rr_eps, N)[1]
                 })
                 print(f" {eps:.2f}", end="", flush=True)
             print(" (done)")
 
-            # 1) Save examples & plots at default ε
-            attack = atk_cls(model, device=device, **{
-                **atk_kwargs, **({"epsilon": epsilons[3]} if atk_name in ("FGSM","PGD") else {})
-            })
-            
-            # Save examples & plots
+            # 1/4) Save examples & norm plots at default ε
+            default_eps = epsilons[3]
+            params = dict(atk_kwargs)
+            if atk_name in ('FGSM','PGD'):
+                params['epsilon'] = default_eps
+            attack = atk_cls(model_src, device=device, **params)
             print("  [1/4] Saving adversarial examples...", end=" ", flush=True)
-            save_extreme_examples(model, attack, test_loader, device,
+            save_extreme_examples(model_src, attack, test_loader, device,
                                   out_dir="data/adversarial_examples")
             print("done.")
-            
-            print("  [2/4] Plotting RA/RR vs. norm…", end="", flush=True)
-            plot_robustness_vs_norm(model, attack, test_loader, device)
-            print(" done.")
-            
-            # Compute RA
-            print("  [3/4] Computing RA", end="", flush=True)
-            ra, _, _ = evaluate_metrics(model, attack, test_loader, bound=1.0)
+            print("  [2/4] Plotting RA/RR vs. norm...", end=" ", flush=True)
+            plot_robustness_vs_norm(model_src, attack, test_loader, device)
+            print("done.")
+
+            # 3/4) Compute in-model RA & CI
+            print("  [3/4] Computing RA/RR...", end=" ", flush=True)
+            ra, _, _ = evaluate_metrics(model_src, attack, test_loader, bound=1.0)
             ra_low, ra_high = normal_ci(ra, N)
-            
             results.append({
                 "model": model_name,
                 "attack": atk_name,
-                "bound": 1.00,
+                "bound": 1.0,
                 "metric": "RA",
                 "value": ra,
                 "ci_lower": ra_low,
                 "ci_upper": ra_high
             })
-            print(f" RA={ra:.4f} [95% CI {ra_low:.4f}–{ra_high:.4f}]")
-
-            # Compute RR at each bound
-            print("  [4/4] Computing RR over bounds…")
+            print(f"RA={ra:.4f} [{ra_low:.4f}–{ra_high:.4f}]")
+            # Compute RR over bounds
             for b in bounds:
-                _, rr, _ = evaluate_metrics(model, attack, test_loader, bound=b)
+                _, rr, _ = evaluate_metrics(model_src, attack, test_loader, bound=b)
                 rr_low, rr_high = normal_ci(rr, N)
                 results.append({
                     "model": model_name,
@@ -158,22 +174,47 @@ def main():
                     "ci_lower": rr_low,
                     "ci_upper": rr_high
                 })
-                print(f"    Bound {b:0.2f} → RR={rr:.4f} [CI {rr_low:.4f}–{rr_high:.4f}]")
-                
-    # Ensure results directory exists
-    results_dir = Path(__file__).parent / "results"
-    results_dir = results_dir.resolve()
-    results_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save to CSV inside results/
-    out_path = results_dir / "robustness_results.csv"
-    # Save results to CSV
+            # 4/4) Evaluate transferability
+            print("  [4/4] Evaluating transferability...", end=" ", flush=True)
+            for other_name in model_names:
+                if other_name == model_name:
+                    continue
+                model_tgt = get_model(other_name, num_classes=100, pretrained=False).to(device)
+                model_tgt = load_checkpoint(model_tgt, other_name).to(device)
+                model_tgt.eval()
+                transfer_acc = evaluate_transferability(
+                    model_src, attack, model_tgt, test_loader
+                )
+                results.append({
+                    "model_src": model_name,
+                    "model_tgt": other_name,
+                    "attack": atk_name,
+                    "metric": "transfer_acc",
+                    "value": transfer_acc
+                })
+                print(f"{atk_name}→{other_name}={transfer_acc:.4f}", end="  ", flush=True)
+            print()
+
+    # Convert to DataFrame and display transfer matrix
     df = pd.DataFrame(results)
+    df_transfer = df[df['metric']=='transfer_acc']
+    pivot = df_transfer.pivot_table(
+        index='model_src', columns=['attack','model_tgt'], values='value'
+    )
+    print("\nTransferability matrix (accuracy):")
+    print(pivot)
+
+    # Save full results CSV
+    results_dir = Path(__file__).parent / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    out_path = results_dir / "robustness_results.csv"
     df.to_csv(out_path, index=False)
     print(f"Saved all metrics to {out_path}")
-    
-    plot_robustness_vs_tolerance(out_path, out_dir=results_dir / "plots")
-    print("tolerance plot saved in results/plots")
 
-if __name__=="__main__":
+    # Generate tolerance plots
+    plot_robustness_vs_tolerance(out_path, out_dir=results_dir / "plots")
+    print("Tolerance plots saved in results/plots")
+
+if __name__ == "__main__":
     main()
