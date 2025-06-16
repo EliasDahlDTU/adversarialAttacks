@@ -33,24 +33,47 @@ def normal_ci(p_hat, N, z=1.96):
 
 def evaluate_metrics(model, attack, dataloader, bound=0.05, num_samples=None):
     model.eval()
-    correct_adv = total = rr_count = 0
+    correct_adv = 0
+    total = 0
+    rr_true_count = 0
+    rr_pred_count = 0
+
     for x, y in dataloader:
         if num_samples and total >= num_samples:
             break
         x, y = x.to(attack.device), y.to(attack.device)
+
+        # clean and adv logits
         with torch.no_grad():
             logits_clean = model(x)
             probs_clean = F.softmax(logits_clean, dim=1)
-            x_adv = attack.generate(x, y)
+        x_adv = attack.generate(x, y)
+        with torch.no_grad():
             logits_adv = model(x_adv)
             probs_adv = F.softmax(logits_adv, dim=1)
-            pred_adv = probs_adv.argmax(dim=1)
+        
+        # predictions on adv
+        pred_adv = probs_adv.argmax(dim=1)
         correct_adv += (pred_adv == y).sum().item()
-        true_clean = probs_clean.gather(1, y.unsqueeze(1)).squeeze(1)
-        true_adv   = probs_adv.gather(1, y.unsqueeze(1)).squeeze(1)
-        rr_count   += (torch.abs(true_adv - true_clean) <= bound).sum().item()
-        total      += x.size(0)
-    return correct_adv/total, rr_count/total, total
+
+        # 1) true-class confidences
+        p_true_clean = probs_clean.gather(1, y.unsqueeze(1)).squeeze(1)
+        p_true_adv   = probs_adv.gather(1, y.unsqueeze(1)).squeeze(1)
+        rr_true_count += (torch.abs(p_true_adv - p_true_clean) <= bound).sum().item()
+
+        # 2) predicted-class confidences (using clean pred)
+        pred_clean = probs_clean.argmax(dim=1)
+        p_pred_clean = probs_clean.gather(1, pred_clean.unsqueeze(1)).squeeze(1)
+        p_pred_adv   = probs_adv.gather(1, pred_clean.unsqueeze(1)).squeeze(1)
+        rr_pred_count += (torch.abs(p_pred_adv - p_pred_clean) <= bound).sum().item()
+
+        total += x.size(0)
+
+    ra = correct_adv / total
+    rr_true = rr_true_count / total
+    rr_pred = rr_pred_count / total
+    return ra, rr_true, rr_pred
+
 
 def load_checkpoint(model, model_name):
     """
@@ -111,7 +134,7 @@ def main():
                     params['epsilon'] = eps
                 attack_eps = atk_cls(model_src, device=device, **params)
 
-                ra_eps, rr_eps, _ = evaluate_metrics(model_src, attack_eps, test_loader, bound=0.05)
+                ra_eps, rr_true_eps, rr_pred_eps = evaluate_metrics(model_src, attack_eps, test_loader, bound=0.05)
                 results.append({
                     "model": model_name,
                     "attack": atk_name,
@@ -121,14 +144,25 @@ def main():
                     "ci_lower": normal_ci(ra_eps, N)[0],
                     "ci_upper": normal_ci(ra_eps, N)[1]
                 })
+                # RR true class
                 results.append({
                     "model": model_name,
                     "attack": atk_name,
                     "tolerance": eps,
-                    "metric": "RR_tol",
-                    "value": rr_eps,
-                    "ci_lower": normal_ci(rr_eps, N)[0],
-                    "ci_upper": normal_ci(rr_eps, N)[1]
+                    "metric": "RR_true_tol",
+                    "value": rr_true_eps,
+                    "ci_lower": normal_ci(rr_true_eps, N)[0],
+                    "ci_upper": normal_ci(rr_true_eps, N)[1]
+                })
+                ## RR predidcted class
+                results.append({
+                    "model": model_name,
+                    "attack": atk_name,
+                    "tolerance": eps,
+                    "metric": "RR_pred_tol",
+                    "value": rr_pred_eps,
+                    "ci_lower": normal_ci(rr_pred_eps, N)[0],
+                    "ci_upper": normal_ci(rr_pred_eps, N)[1]
                 })
                 print(f" {eps:.2f}", end="", flush=True)
             print(" (done)")
@@ -149,7 +183,7 @@ def main():
 
             # 3/4) Compute in-model RA & CI
             print("  [3/4] Computing RA/RR...", end=" ", flush=True)
-            ra, _, _ = evaluate_metrics(model_src, attack, test_loader, bound=1.0)
+            ra, rr_true, rr_pred = evaluate_metrics(model_src, attack, test_loader, bound=1.0)
             ra_low, ra_high = normal_ci(ra, N)
             results.append({
                 "model": model_name,
@@ -161,19 +195,30 @@ def main():
                 "ci_upper": ra_high
             })
             print(f"RA={ra:.4f} [{ra_low:.4f}–{ra_high:.4f}]")
-            # Compute RR over bounds
+            # Compute true RR over bounds
             for b in bounds:
-                _, rr, _ = evaluate_metrics(model_src, attack, test_loader, bound=b)
-                rr_low, rr_high = normal_ci(rr, N)
+                _, rt, rp = evaluate_metrics(model_src, attack, test_loader, bound=b)
                 results.append({
                     "model": model_name,
                     "attack": atk_name,
                     "bound": b,
-                    "metric": "RR",
-                    "value": rr,
-                    "ci_lower": rr_low,
-                    "ci_upper": rr_high
+                    "metric": "RR_true",
+                    "value": rt,
+                    "ci_lower": normal_ci(rt, N)[0],
+                    "ci_upper": normal_ci(rt, N)[1]
                 })
+                results.append({
+                    "model": model_name,
+                    "attack": atk_name,
+                    "bound": b,
+                    "metric": "RR_pred",
+                    "value": rp,
+                    "ci_lower": normal_ci(rp, N)[0],
+                    "ci_upper": normal_ci(rp, N)[1]
+                })
+                print(f"RR_true({b})={rt:.4f} [{normal_ci(rt, N)[0]:.4f}–{normal_ci(rt, N)[1]:.4f}]  "
+                      f"RR_pred({b})={rp:.4f} [{normal_ci(rp, N)[0]:.4f}–{normal_ci(rp, N)[1]:.4f}]")
+            print("done.")
 
             # 4/4) Evaluate transferability
             print("  [4/4] Evaluating transferability...", end=" ", flush=True)
