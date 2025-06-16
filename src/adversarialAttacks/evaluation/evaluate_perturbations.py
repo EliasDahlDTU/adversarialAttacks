@@ -12,6 +12,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+from pytorch_msssim import ssim  # We'll need to install this
 
 from adversarialAttacks.models import get_model
 from adversarialAttacks.attacks.fgsm import FGSM
@@ -21,6 +22,15 @@ from adversarialAttacks.attacks.cw import CW
 def calculate_l2_norm(clean_img, adv_img):
     """Calculate L2 norm of the perturbation."""
     return torch.norm(adv_img - clean_img, p=2).item()
+
+def calculate_ssim(clean_img, adv_img):
+    """Calculate SSIM between clean and adversarial images."""
+    # SSIM expects input in range [0, 1] and shape [B, C, H, W]
+    # Add batch dimension if needed
+    if clean_img.dim() == 3:
+        clean_img = clean_img.unsqueeze(0)
+        adv_img = adv_img.unsqueeze(0)
+    return ssim(clean_img, adv_img, data_range=1.0).item()
 
 def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, device='cuda'):
     """
@@ -33,9 +43,18 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
         data_dir (str): Path to test images directory
         device (str): Device to run evaluation on
     """
+    # Print CUDA status
+    print("\n=== CUDA Status ===")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"CUDA device: {torch.cuda.get_device_name()}")
+        print(f"CUDA version: {torch.version.cuda}")
+    print(f"Using device: {device}")
+    print("==================\n")
+    
     # Load model
     model = get_model(model_name, num_classes=100, pretrained=False).to(device)
-    checkpoint = torch.load(f'data/best_models/best_{model_name}.pth', map_location=device)
+    checkpoint = torch.load(f'data/best_models/best_VGG.pth', map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     
@@ -44,18 +63,26 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
         attack_cls = FGSM if attack_type.lower() == 'fgsm' else PGD
         attack = attack_cls(model, device=device, epsilon=attack_param)
     else:  # CW
-        attack = CW(model, device=device, c=attack_param)
+        print("Initializing CW attack...")
+        attack = CW(model, device=device, c=attack_param, max_iter=100)
+        print("CW attack initialized")
     
     # Load data
     transform = transforms.Compose([transforms.ToTensor()])
     dataset = ImageFolder(data_dir, transform=transform)
     dataloader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
     
-    # Initialize results list
+    # Initialize results list and output directory
     results = []
+    output_dir = Path('data/perturbation_analysis')
+    output_dir.mkdir(exist_ok=True)
+    
+    # Create filename with model, attack, and parameter info
+    filename = f"{model_name}_{attack_type}_{attack_param:.3f}.csv"
+    save_interval = 10  # Save every 10 batches
     
     # Process each batch
-    for x, y in tqdm(dataloader, desc="Generating adversarial examples"):
+    for batch_idx, (x, y) in enumerate(tqdm(dataloader, desc="Generating adversarial examples")):
         x, y = x.to(device), y.to(device)
         
         # Get clean predictions
@@ -77,8 +104,9 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
             true_prob_adv = probs_adv.gather(1, y.unsqueeze(1)).squeeze(1)
             max_prob_adv = probs_adv.max(dim=1)[0]
         
-        # Calculate L2 norms
+        # Calculate L2 norms and SSIM
         l2_norms = [calculate_l2_norm(x[i], x_adv[i]) for i in range(x.size(0))]
+        ssim_values = [calculate_ssim(x[i], x_adv[i]) for i in range(x.size(0))]
         
         # Store results for each image
         for i in range(x.size(0)):
@@ -91,18 +119,27 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
                 'model': model_name,
                 'attack': attack_type,
                 'attack_param': attack_param,
-                'l2_norm': l2_norms[i]
+                'l2_norm': l2_norms[i],
+                'ssim': ssim_values[i]
             })
+        
+        # Save progress periodically
+        if (batch_idx + 1) % save_interval == 0:
+            df = pd.DataFrame(results)
+            df.to_csv(output_dir / filename, index=False)
+            print(f"\nProgress saved: {len(results)} images processed")
+            
+            # Print perturbation statistics
+            #print("\nPerturbation Statistics:")
+            #print(f"Average L2 norm: {df['l2_norm'].mean():.4f}")
+            #print(f"Average SSIM: {df['ssim'].mean():.4f}")
+            #print(f"Attack success rate: {(~df['correct_classification']).mean():.2%}")
+            #print(f"Average confidence drop: {(df['true_prob_before'] - df['true_prob_after']).mean():.4f}")
     
-    # Convert to DataFrame and save
+    # Final save
     df = pd.DataFrame(results)
-    output_dir = Path('data/perturbation_analysis')
-    output_dir.mkdir(exist_ok=True)
-    
-    # Create filename with model, attack, and parameter info
-    filename = f"{model_name}_{attack_type}_{attack_param:.3f}.csv"
     df.to_csv(output_dir / filename, index=False)
-    print(f"Results saved to {output_dir / filename}")
+    print(f"\nFinal results saved to {output_dir / filename}")
     
     return df
 
@@ -110,20 +147,18 @@ if __name__ == "__main__":
     # Example usage
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # Example 1: Run all combinations (as before)
-    # models = ['vgg16', 'resnet50']
-    # attacks = [
-    #     ('fgsm', 0.03),
-    #     ('pgd', 0.03),
-    #     ('cw', 1.0)
-    # ]
+    # Print detailed GPU information
+    print("\n=== GPU Information ===")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    print("=====================\n")
     
     # Example 2: Run only CW attack on VGG16 with multiple c values
-    models = ['vgg16']  # Only VGG16
+    models = ['vgg16', 'resnet50']  # Only VGG16
     attacks = [
         ('cw', 0.1),   # Try different c values
         ('cw', 1.0),
-        ('cw', 10.0)
+        ('cw', 10.0),
+        #('cw', 5.0),
     ]
     
     # Example 3: Run specific combinations
