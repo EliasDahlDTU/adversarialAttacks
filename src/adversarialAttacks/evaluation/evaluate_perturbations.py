@@ -19,6 +19,14 @@ from adversarialAttacks.attacks.fgsm import FGSM
 from adversarialAttacks.attacks.pgd import PGD
 from adversarialAttacks.attacks.cw import CW
 
+def set_seed(seed=42):
+    """Set random seed for reproducibility."""
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 def calculate_l2_norm(clean_img, adv_img):
     """Calculate L2 norm of the perturbation."""
     return torch.norm(adv_img - clean_img, p=2).item()
@@ -32,7 +40,7 @@ def calculate_ssim(clean_img, adv_img):
         adv_img = adv_img.unsqueeze(0)
     return ssim(clean_img, adv_img, data_range=1.0).item()
 
-def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, device='cuda'):
+def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, device='cuda', seed=42):
     """
     Evaluate model robustness by tracking perturbation sizes and confidence changes.
     
@@ -42,7 +50,11 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
         attack_param (float): epsilon for FGSM/PGD, c for CW
         data_dir (str): Path to test images directory
         device (str): Device to run evaluation on
+        seed (int): Random seed for reproducibility
     """
+    # Set random seed
+    set_seed(seed)
+    
     # Print CUDA status
     print("\n=== CUDA Status ===")
     print(f"CUDA available: {torch.cuda.is_available()}")
@@ -144,6 +156,9 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
     return df
 
 if __name__ == "__main__":
+    # Set random seed for reproducibility
+    set_seed(42)
+    
     # Example usage
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
