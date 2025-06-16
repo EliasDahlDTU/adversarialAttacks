@@ -66,7 +66,9 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
     
     # Load model
     model = get_model(model_name, num_classes=100, pretrained=False).to(device)
-    checkpoint = torch.load(f'data/best_models/best_VGG.pth', map_location=device)
+    # Map model names to correct weight filenames
+    weight_file = 'best_VGG.pth' if model_name == 'vgg16' else 'best_ResNet.pth'
+    checkpoint = torch.load(f'data/best_models/{weight_file}', map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     
