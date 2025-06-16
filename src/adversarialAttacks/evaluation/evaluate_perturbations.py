@@ -1,3 +1,8 @@
+import os
+import sys
+# Add src to Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -8,10 +13,10 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
-from models import get_model
-from attacks.fgsm import FGSM
-from attacks.pgd import PGD
-from attacks.cw import CW
+from adversarialAttacks.models import get_model
+from adversarialAttacks.attacks.fgsm import FGSM
+from adversarialAttacks.attacks.pgd import PGD
+from adversarialAttacks.attacks.cw import CW
 
 def calculate_l2_norm(clean_img, adv_img):
     """Calculate L2 norm of the perturbation."""
