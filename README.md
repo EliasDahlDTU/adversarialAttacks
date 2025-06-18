@@ -110,7 +110,7 @@ NB: The zip-file will sometimes unpack into a folder named "archive". If this ha
 
 3. Now we preprocess the raw data with the following script:
    ```bash
-   python src/adversarialAttacks/preprocess_data.py
+   python src/adversarialAttacks/data/preprocess_data.py
    ```
 This script:
 - Resizes all images to 224×224 pixels
