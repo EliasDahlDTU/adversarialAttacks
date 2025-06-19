@@ -17,6 +17,8 @@ def load_attack_results(model_name, attack_type):
         pattern = f'{model_name}_fgsm_*.csv'
     elif attack_type == 'cw':
         pattern = f'{model_name}_cw_*.csv'
+    elif attack_type == 'pgd':
+        pattern = f'{model_name}_pgd_*.csv'
     else:
         raise ValueError(f"Unsupported attack type: {attack_type}")
     
@@ -90,7 +92,13 @@ def analyze_attack_results(results, attack_type):
 def plot_results(analysis_results, model_name, attack_type):
     """Plot the Robustness Rate results."""
     params = analysis_results['params']
-    param_name = 'Epsilon' if attack_type == 'fgsm' else 'c'
+    param_name = 'Epsilon' if attack_type in ['fgsm', 'pgd'] else 'c'
+    
+    # Sort params and associated metrics for correct plotting order
+    sort_idx = np.argsort(params)
+    sorted_params = np.array(params)[sort_idx]
+    sorted_ra = np.array(analysis_results['robust_accuracies'])[sort_idx]
+    sorted_ra_stds = np.array(analysis_results['ra_stds'])[sort_idx]
     
     # Create figure with three subplots in a horizontal layout
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
@@ -108,14 +116,12 @@ def plot_results(analysis_results, model_name, attack_type):
         ax.title.set_color('black')
     
     # Plot 1: Combined metrics plot
-    # Plot RA
-    ax1.errorbar(params, analysis_results['robust_accuracies'], 
-                yerr=analysis_results['ra_stds'],
+    ax1.errorbar(sorted_params, sorted_ra, 
+                yerr=sorted_ra_stds,
                 fmt='o-', color='red', linewidth=2,
                 capsize=5, capthick=2, elinewidth=2,
                 label='Robust Accuracy')
     
-    # Plot TCCR
     df = pd.DataFrame({
         param_name: analysis_results['all_params'],
         'TCCR': analysis_results['all_remaining_prob']
@@ -131,6 +137,9 @@ def plot_results(analysis_results, model_name, attack_type):
                     grouped['mean'] + grouped['std'],
                     alpha=0.2, color='blue')
     
+    # Add blue dots at the mean TCCR values
+    ax1.scatter(grouped[param_name], grouped['mean'], color='blue', s=60, zorder=5)
+    
     ax1.set_xlabel(param_name)
     ax1.set_ylabel('Value')
     ax1.set_title(f'{model_name} {attack_type.upper()}\nCombined Metrics')
@@ -141,23 +150,35 @@ def plot_results(analysis_results, model_name, attack_type):
     
     # Plot 2: Scatter plot (point cloud)
     if attack_type == 'cw':
-        # Create a colormap for discrete c values with high contrast colors
         unique_cs = sorted(set(analysis_results['all_params']))
-        colors = ['#006400', '#FFD700', '#FF0000']  # Green, Yellow, Stop-sign Red
-        
-        # Plot each c value separately with its own color
-        for c_val, color in zip(unique_cs, colors):
+        # Use the 1st, 2nd, 4th, 6th, 8th, 10th, and 12th colors from the FGSM color list
+        fgsm_colors = [
+            '#4169E1',  # 1 Royal Blue
+            '#40E0D0',  # 2 Turquoise
+            '#50C878',  # 3 Emerald Green
+            '#228B22',  # 4 Forest Green
+            '#32CD32',  # 5 Lime Green
+            '#FFFF00',  # 6 Cool Yellow
+            '#FFD700',  # 7 Regular Yellow
+            '#FFA07A',  # 8 Light Orange
+            '#FF8C00',  # 9 Orange
+            '#FA8072',  # 10 Salmon
+            '#B22222',  # 11 Brick Colored
+            '#8B0000',  # 12 Deep Blood Red
+            '#DB7093',  # 13 Pinkish Violet
+            '#800080'   # 14 Purple
+        ]
+        idxs = [0, 1, 3, 5, 7, 9, 11]  # 1,2,4,6,8,10,12 (0-based)
+        cw_colors = [fgsm_colors[i] for i in idxs[:len(unique_cs)]]
+        for c_val, color in zip(unique_cs, cw_colors):
             mask = np.array(analysis_results['all_params']) == c_val
             ax2.scatter(np.array(analysis_results['all_l2_norms'])[mask], 
                        np.array(analysis_results['all_remaining_prob'])[mask],
-                       alpha=0.08, s=1, color=color, label=f'c = {c_val:.1f}')
-        
-        # Add legend inside the plot with larger markers
+                       alpha=0.08, s=1, color=color, label=f'c = {c_val:.3g}')
         legend = ax2.legend(bbox_to_anchor=(0.95, 0.95), loc='upper right')
-        # Make the legend markers larger and solid
         for handle in legend.legend_handles:
-            handle.set_sizes([50])  # Increase marker size in legend
-            handle.set_alpha(1.0)   # Make legend markers solid
+            handle.set_sizes([50])
+            handle.set_alpha(1.0)
         plt.setp(legend.get_texts(), color='black')
     else:
         # For FGSM, use a custom color progression with balanced transitions
@@ -226,8 +247,8 @@ def plot_results(analysis_results, model_name, attack_type):
     fig.patch.set_facecolor(bg_color)
     
     plt.tight_layout()
-    plt.savefig(f'results/{model_name}_{attack_type}_tccr.png', bbox_inches='tight', facecolor=bg_color)
-    plt.close()
+    plt.savefig(f'results/{model_name}_{attack_type}_tccr.png', bbox_inches='tight', facecolor='white')
+    plt.close(fig)
 
 def main():
     # Create results directory if it doesn't exist
@@ -235,11 +256,15 @@ def main():
     
     # Analyze both models and attack types
     for model_name in ['vgg16', 'resnet50']:
-        for attack_type in ['fgsm', 'cw']:
+        for attack_type in ['fgsm', 'pgd', 'cw']:
             print(f"\nAnalyzing {model_name} with {attack_type.upper()}...")
             
             # Load results
             results = load_attack_results(model_name, attack_type)
+            
+            if not results:
+                print(f"No results found for {model_name} {attack_type.upper()}.")
+                continue
             
             # Analyze results
             analysis_results = analyze_attack_results(results, attack_type)
@@ -248,7 +273,7 @@ def main():
             plot_results(analysis_results, model_name, attack_type)
             
             # Print summary statistics
-            param_name = 'Epsilon' if attack_type == 'fgsm' else 'c'  # Define param_name here
+            param_name = 'Epsilon' if attack_type in ['fgsm', 'pgd'] else 'c'  # Define param_name here
             print(f"\n{model_name.upper()} {attack_type.upper()} Summary:")
             print("=" * 40)
             print("\nRobust Accuracy Summary:")

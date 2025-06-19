@@ -40,7 +40,7 @@ def calculate_ssim(clean_img, adv_img):
         adv_img = adv_img.unsqueeze(0)
     return ssim(clean_img, adv_img, data_range=1.0).item()
 
-def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, device='cuda', seed=42):
+def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, device='cuda', seed=42, alpha=None, steps=None):
     """
     Evaluate model robustness by tracking perturbation sizes and confidence changes.
     
@@ -51,6 +51,8 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
         data_dir (str): Path to test images directory
         device (str): Device to run evaluation on
         seed (int): Random seed for reproducibility
+        alpha (float): Step size for PGD
+        steps (int): Number of steps for PGD
     """
     # Set random seed
     set_seed(seed)
@@ -73,9 +75,10 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
     model.eval()
     
     # Setup attack
-    if attack_type.lower() in ['fgsm', 'pgd']:
-        attack_cls = FGSM if attack_type.lower() == 'fgsm' else PGD
-        attack = attack_cls(model, device=device, epsilon=attack_param)
+    if attack_type.lower() == 'fgsm':
+        attack = FGSM(model, device=device, epsilon=attack_param)
+    elif attack_type.lower() == 'pgd':
+        attack = PGD(model, device=device, epsilon=attack_param, alpha=alpha, num_steps=steps)
     else:  # CW
         print("Initializing CW attack...")
         attack = CW(model, device=device, c=attack_param, max_iter=100)
@@ -161,37 +164,27 @@ if __name__ == "__main__":
     # Set random seed for reproducibility
     set_seed(42)
     
-    # Example usage
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Print detailed GPU information
     print("\n=== GPU Information ===")
     print(f"CUDA available: {torch.cuda.is_available()}")
     print("=====================\n")
-    
-    # Example 2: Run only CW attack on VGG16 with multiple c values
-    models = ['vgg16', 'resnet50']  # Only VGG16
-    attacks = [
-        ('cw', 0.1),   # Try different c values
-        ('cw', 1.0),
-        ('cw', 10.0),
-        #('cw', 5.0),
-    ]
-    
-    # Example 3: Run specific combinations
-    # models = ['vgg16']
-    # attacks = [
-    #     ('fgsm', 0.03),
-    #     ('pgd', 0.03)
-    # ]
-    
+
+    # PGD: Run for all epsilon values from 0.01 to 0.25 with 0.02 increments, 10 steps, alpha = epsilon/10
+    models = ['vgg16', 'resnet50']
+    attack_type = 'pgd'
+    steps = 10
+    epsilons = np.arange(0.01, 0.25+0.001, 0.02)
     for model_name in models:
-        for attack_type, param in attacks:
-            print(f"\nEvaluating {model_name} with {attack_type} (param={param})")
+        for epsilon in epsilons:
+            alpha = epsilon / steps
+            print(f"\nEvaluating {model_name} with PGD (epsilon={epsilon:.3f}, steps={steps}, alpha={alpha:.4f})")
             df = evaluate_perturbations(
                 model_name=model_name,
                 attack_type=attack_type,
-                attack_param=param,
+                attack_param=epsilon,
                 data_dir='data/processed/test',
-                device=device
-            ) 
+                device=device,
+                seed=42,
+                alpha=alpha,
+                steps=steps
+            )
