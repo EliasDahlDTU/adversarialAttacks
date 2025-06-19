@@ -11,3 +11,4 @@ torchattacks==3.4.0
 foolbox==3.3.3
 lpips==0.1.4
 opencv-python==4.8.0.76
+pytorch-msssim==1.0.0
