@@ -1,0 +1,25 @@
+#!/bin/bash
+#BSUB -J fedavg_more[1-6]
+#BSUB -q hpc
+#BSUB -n 4
+#BSUB -W 12:00
+#BSUB -R "rusage[mem=4096]"
+#BSUB -oo logs/fedavg_more.%I.out    
+#BSUB -eo logs/fedavg_more.%I.err
+
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+export OMP_WAIT_POLICY=ACTIVE
+
+source /zhome/76/c/186999/venv_fl/bin/activate
+
+EPOCH_LIST=(1 3 5 10 15 20)
+LOCAL_EPOCHS=${EPOCH_LIST[$LSB_JOBINDEX-1]}
+
+echo "Running FedAvg with LOCAL_EPOCHS=$LOCAL_EPOCHS"
+
+python run_fedavg.py \
+    --local_epochs   $LOCAL_EPOCHS \
+    --num_rounds     100 \
+    --lr             1e-4 \
+    --batch_size     32
