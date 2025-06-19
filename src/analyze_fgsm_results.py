@@ -7,6 +7,7 @@ import seaborn as sns
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
 from scipy.stats import gaussian_kde
+import matplotlib.colors
 
 def load_attack_results(model_name, attack_type):
     """Load attack results for a specific model and attack type from CSV files."""
@@ -94,6 +95,18 @@ def plot_results(analysis_results, model_name, attack_type):
     # Create figure with three subplots in a horizontal layout
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
     
+    # Set white background for all subplots
+    bg_color = 'white'
+    for ax in [ax1, ax2, ax3]:
+        ax.set_facecolor(bg_color)
+        ax.grid(True, color='gray', alpha=0.3)
+        for spine in ax.spines.values():
+            spine.set_color('black')
+        ax.tick_params(colors='black')
+        ax.xaxis.label.set_color('black')
+        ax.yaxis.label.set_color('black')
+        ax.title.set_color('black')
+    
     # Plot 1: Combined metrics plot
     # Plot RA
     ax1.errorbar(params, analysis_results['robust_accuracies'], 
@@ -111,11 +124,6 @@ def plot_results(analysis_results, model_name, attack_type):
     # Group by parameter and calculate mean and std
     grouped = df.groupby(param_name)['TCCR'].agg(['mean', 'std']).reset_index()
     
-    # Debug prints for TCCR values
-    print("\nTCCR values by parameter:")
-    for _, row in grouped.iterrows():
-        print(f"{param_name} = {row[param_name]:.3f}: Mean TCCR = {row['mean']:.4f} ± {row['std']:.4f}")
-    
     # Plot mean with std
     ax1.plot(grouped[param_name], grouped['mean'], 'b-', linewidth=2, label='TCCR')
     ax1.fill_between(grouped[param_name], 
@@ -126,10 +134,10 @@ def plot_results(analysis_results, model_name, attack_type):
     ax1.set_xlabel(param_name)
     ax1.set_ylabel('Value')
     ax1.set_title(f'{model_name} {attack_type.upper()}\nCombined Metrics')
-    ax1.grid(True)
     ax1.set_ylim(0, 1)  # Fix y-axis limits
     ax1.set_xlim(0, max(params))  # Fix x-axis to start at 0
-    ax1.legend()
+    legend1 = ax1.legend()
+    plt.setp(legend1.get_texts(), color='black')
     
     # Plot 2: Scatter plot (point cloud)
     if attack_type == 'cw':
@@ -142,7 +150,7 @@ def plot_results(analysis_results, model_name, attack_type):
             mask = np.array(analysis_results['all_params']) == c_val
             ax2.scatter(np.array(analysis_results['all_l2_norms'])[mask], 
                        np.array(analysis_results['all_remaining_prob'])[mask],
-                       alpha=0.1, s=1, color=color, label=f'c = {c_val:.1f}')
+                       alpha=0.08, s=1, color=color, label=f'c = {c_val:.1f}')
         
         # Add legend inside the plot with larger markers
         legend = ax2.legend(bbox_to_anchor=(0.95, 0.95), loc='upper right')
@@ -150,15 +158,50 @@ def plot_results(analysis_results, model_name, attack_type):
         for handle in legend.legend_handles:
             handle.set_sizes([50])  # Increase marker size in legend
             handle.set_alpha(1.0)   # Make legend markers solid
+        plt.setp(legend.get_texts(), color='black')
     else:
-        scatter = ax2.scatter(analysis_results['all_l2_norms'], 
-                            analysis_results['all_remaining_prob'],
-                            alpha=0.1, s=1, color='blue')
+        # For FGSM, use a custom color progression with balanced transitions
+        unique_epsilons = sorted(set(analysis_results['all_params']))
+        # Create a custom colormap with balanced color distribution
+        colors = [
+            '#4169E1',  # Royal Blue (brighter than deep cold blue)
+            '#40E0D0',  # Turquoise
+            '#50C878',  # Emerald Green
+            '#228B22',  # Forest Green
+            '#32CD32',  # Lime Green
+            '#FFFF00',  # Cool Yellow
+            '#FFD700',  # Regular Yellow
+            '#FFA07A',  # Light Orange
+            '#FF8C00',  # Orange
+            '#FA8072',  # Salmon
+            '#B22222',  # Brick Colored
+            '#8B0000',  # Deep Blood Red
+            '#DB7093',  # Pinkish Violet
+            '#800080'   # Purple
+        ]
+        cmap = matplotlib.colors.LinearSegmentedColormap.from_list('custom', colors)
+        # Normalize epsilon values to [0,1] for colormap
+        norm = plt.Normalize(min(unique_epsilons), max(unique_epsilons))
+        
+        # Plot each epsilon value separately with its color from the colormap
+        for eps in unique_epsilons:
+            mask = np.array(analysis_results['all_params']) == eps
+            color = cmap(norm(eps))
+            ax2.scatter(np.array(analysis_results['all_l2_norms'])[mask], 
+                       np.array(analysis_results['all_remaining_prob'])[mask],
+                       alpha=0.08, s=1, color=color, label=f'ε = {eps:.2f}')
+        
+        # Add legend inside the plot with larger markers
+        legend = ax2.legend(bbox_to_anchor=(0.95, 0.95), loc='upper right')
+        # Make the legend markers larger and solid
+        for handle in legend.legend_handles:
+            handle.set_sizes([50])  # Increase marker size in legend
+            handle.set_alpha(1.0)   # Make legend markers solid
+        plt.setp(legend.get_texts(), color='black')
     
     ax2.set_xlabel('L2 Perturbation Size')
     ax2.set_ylabel('TCCR')
     ax2.set_title(f'{model_name} {attack_type.upper()}\nPoint Cloud')
-    ax2.grid(True)
     ax2.set_ylim(0, 1)  # Fix y-axis limits
     ax2.set_xlim(0, max(analysis_results['all_l2_norms']))  # Fix x-axis to start at 0
     
@@ -173,13 +216,17 @@ def plot_results(analysis_results, model_name, attack_type):
     ax3.set_xlabel('L2 Perturbation Size')
     ax3.set_ylabel('TCCR')
     ax3.set_title(f'{model_name} {attack_type.upper()}\nDensity Plot')
-    ax3.grid(True)
     ax3.set_ylim(0, 1)  # Fix y-axis limits
     ax3.set_xlim(0, max(analysis_results['all_l2_norms']))  # Fix x-axis to start at 0
-    plt.colorbar(h3[3], ax=ax3, label='Count (log scale)')
+    cbar = plt.colorbar(h3[3], ax=ax3, label='Count (log scale)')
+    cbar.ax.yaxis.label.set_color('black')
+    cbar.ax.tick_params(colors='black')
+    
+    # Set figure background to white
+    fig.patch.set_facecolor(bg_color)
     
     plt.tight_layout()
-    plt.savefig(f'results/{model_name}_{attack_type}_tccr.png', bbox_inches='tight')
+    plt.savefig(f'results/{model_name}_{attack_type}_tccr.png', bbox_inches='tight', facecolor=bg_color)
     plt.close()
 
 def main():
