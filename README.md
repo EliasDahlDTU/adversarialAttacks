@@ -13,22 +13,52 @@ This project investigates the use of adversarial attacks as a tool for protectin
 ```
 .
 ├── data/
-│   ├── raw/                      # ImageNet100 dataset
-│   ├── processed/                # Preprocessed dataset
-│   ├── best_models/              # Best VGG and ResNet model after finetuning
-│   └── adversarial_examples/     # Generated adversarial examples from different methods
-│       ├── FGSM/                 
-│       ├── CW/                   
-│       └── PGD/                  
+│   ├── raw/                                        # Original ImageNet100 dataset (unprocessed)
+│   ├── processed/                                  # Preprocessed dataset (train/val/test splits)
+│   │   ├── train/
+│   │   ├── val/
+│   │   └── test/
+│   ├── best_models/                                # Best VGG and ResNet model weights after fine-tuning
+│   ├── adversarial_examples/                       # Generated adversarial examples by attack type
+│   │   ├── FGSM/
+│   │   ├── CW/
+│   │   └── PGD/
+│   ├── perturbation_analysis/                      # CSVs with per-image attack/perturbation results
+│   ├── training_history/                           # (If used) Training logs or histories
+│   └── .gitkeep
+├── results/                                        # Plots and figures (e.g., TCRR plots)
+│   
 ├── src/
+│   ├── analyze_results.py                          # Analysis and plotting of results
 │   └── adversarialAttacks/
-│       ├── preprocess_data.py   # Dataset preprocessing
-│       ├── models.py            # Model architecture and pretrained weight implementation
-│       ├── attacks.py           # FGSM, PGD, and CW implementations and generation of adversarial examples
-│       ├── training.py          # Fine-tuning script for VGG and ResNet
-│       ├── evaluation.py        # Evaluation metrics
-│       └── visualization.py  # Visualization tools
-└── notebooks/           # Experiment notebooks
+│       ├── __init__.py
+│       ├── models.py                               # Model architectures and loading utilities
+│       ├── attacks/                                # Implementation of the three adversarial attacks
+│       │   ├── __init__.py                         
+│       │   ├── base_attack.py                      
+│       │   ├── fgsm.py                             
+│       │   ├── pgd.py                     
+│       │   └── cw.py
+│       ├── data/                                   # Scripts used for preparing and moving large amounts of image data
+│       │   ├── __init__.py
+│       │   ├── preprocess_data.py
+│       │   └── data_loader.py
+│       ├── evaluation/                             # Scripts used for measuring and quantifying model degradation due to attacks
+│       │   ├── __init__.py
+│       │   ├── evaluate_perturbations.py
+│       │   ├── evaluate_transferability.py
+│       │   ├── save_image.py
+│       │   ├── test_baseline_accuracy.py
+│       │   └── hpc.lsf
+│       ├── training/                               # These two scripts are for fine-tuning model weights of VGG16 and ResNet50 for the data
+│       │   ├── __init__.py
+│       │   ├── train.py
+│       │   └── fast_train.py
+│       └── __pycache__/
+│           └── ... (compiled Python files)
+├── requirements.txt                                # Python dependencies for the project
+├── README.md                                       # You are here! :D
+└── .gitignore
 ```
 
 ## Setup

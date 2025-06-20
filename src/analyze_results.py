@@ -8,6 +8,8 @@ from matplotlib.colors import LogNorm
 from tqdm import tqdm
 from scipy.stats import gaussian_kde
 import matplotlib.colors
+import matplotlib.lines as mlines
+from matplotlib.legend_handler import HandlerTuple
 
 def load_attack_results(model_name, attack_type):
     """Load attack results for a specific model and attack type from CSV files."""
@@ -64,14 +66,6 @@ def analyze_attack_results(results, attack_type):
         valid_mask = (tccr >= 0) & (tccr <= 1)
         tccr = tccr[valid_mask]
         
-        # Debug prints for first parameter
-        if param == min(params):
-            print(f"\nDebug for {param_name} = {param}:")
-            print(f"Mean TCCR: {np.mean(tccr):.4f}")
-            print(f"Min TCCR: {np.min(tccr):.4f}")
-            print(f"Max TCCR: {np.max(tccr):.4f}")
-            print(f"Number of valid samples: {np.sum(valid_mask)}")
-        
         all_remaining_prob.extend(tccr)
         all_l2_norms.extend(data['l2_norm'][valid_mask])
         all_params.extend([param] * len(tccr))
@@ -116,28 +110,39 @@ def plot_results(analysis_results, model_name, attack_type):
         ax.title.set_color('black')
     
     # Plot 1: Combined metrics plot
+    # Calculate 95% CI for RA
+    ra_n = np.array([np.sum(np.array(analysis_results['all_params']) == p) for p in sorted_params])
+    ra_cis = 1.96 * sorted_ra_stds / np.sqrt(ra_n)
     ax1.errorbar(sorted_params, sorted_ra, 
-                yerr=sorted_ra_stds,
+                yerr=ra_cis,
                 fmt='o-', color='red', linewidth=2,
                 capsize=5, capthick=2, elinewidth=2,
                 label='Robust Accuracy')
     
     df = pd.DataFrame({
         param_name: analysis_results['all_params'],
-        'TCCR': analysis_results['all_remaining_prob']
+        'TCRR': analysis_results['all_remaining_prob']
     })
     
-    # Group by parameter and calculate mean and std
-    grouped = df.groupby(param_name)['TCCR'].agg(['mean', 'std']).reset_index()
+    # Group by parameter and calculate mean and 95% CI
+    grouped = df.groupby(param_name)['TCRR'].agg(['mean', 'std', 'count']).reset_index()
+    grouped['ci95'] = 1.96 * grouped['std'] / np.sqrt(grouped['count'])
     
-    # Plot mean with std
-    ax1.plot(grouped[param_name], grouped['mean'], 'b-', linewidth=2, label='TCCR')
-    ax1.fill_between(grouped[param_name], 
+    # Plot mean with 95% CI for TCRR as error bars (pins), not shaded area
+    ax1.plot(grouped[param_name], grouped['mean'], 'b-', linewidth=2, label='TCRR')
+    # Shaded area for std (RA)
+    ra_std_patch = ax1.fill_between(sorted_params, 
+                                   sorted_ra - sorted_ra_stds,
+                                   sorted_ra + sorted_ra_stds,
+                                   alpha=0.15, color='red', label='RA Std')
+    # Shaded area for std (TCRR)
+    std_patch = ax1.fill_between(grouped[param_name], 
                     grouped['mean'] - grouped['std'],
                     grouped['mean'] + grouped['std'],
-                    alpha=0.2, color='blue')
-    
-    # Add blue dots at the mean TCCR values
+                    alpha=0.15, color='blue', label='TCRR Std')
+    # 95% CI error bars
+    ax1.errorbar(grouped[param_name], grouped['mean'], yerr=grouped['ci95'], fmt='o', color='blue', capsize=5, capthick=2, elinewidth=2)
+    # Add blue dots at the mean TCRR values
     ax1.scatter(grouped[param_name], grouped['mean'], color='blue', s=60, zorder=5)
     
     ax1.set_xlabel(param_name)
@@ -145,100 +150,107 @@ def plot_results(analysis_results, model_name, attack_type):
     ax1.set_title(f'{model_name} {attack_type.upper()}\nCombined Metrics')
     ax1.set_ylim(0, 1)  # Fix y-axis limits
     ax1.set_xlim(0, max(params))  # Fix x-axis to start at 0
-    legend1 = ax1.legend()
-    plt.setp(legend1.get_texts(), color='black')
+
+    # Create dummy errorbar handles for legend (dot + vertical error bar + horizontal caps)
+    dummy_x = [0]
+    dummy_y = [0]
+    ra_errbar = ax1.errorbar(dummy_x, dummy_y, yerr=[0.2], fmt='o', color='red', capsize=5, elinewidth=2, capthick=2)
+    tcrr_errbar = ax1.errorbar(dummy_x, dummy_y, yerr=[0.2], fmt='o', color='blue', capsize=5, elinewidth=2, capthick=2)
+
+    # Use only the ErrorbarContainer for the legend, and add the std patches
+    ax1.legend(
+        [ra_errbar, tcrr_errbar, ra_std_patch, std_patch],
+        ['Robust Accuracy', 'TCRR', 'RA Std', 'TCRR Std'],
+        handler_map={type(ra_errbar): matplotlib.legend_handler.HandlerErrorbar()}
+    )
+
+    # Remove the dummy errorbars from the plot
+    for err in [ra_errbar, tcrr_errbar]:
+        for artist in err.lines:
+            if isinstance(artist, (list, tuple)):
+                for a in artist:
+                    a.set_visible(False)
+            else:
+                artist.set_visible(False)
     
     # Plot 2: Scatter plot (point cloud)
     if attack_type == 'cw':
         unique_cs = sorted(set(analysis_results['all_params']))
-        # Use the 1st, 2nd, 4th, 6th, 8th, 10th, and 12th colors from the FGSM color list
         fgsm_colors = [
-            '#4169E1',  # 1 Royal Blue
-            '#40E0D0',  # 2 Turquoise
-            '#50C878',  # 3 Emerald Green
-            '#228B22',  # 4 Forest Green
-            '#32CD32',  # 5 Lime Green
-            '#FFFF00',  # 6 Cool Yellow
-            '#FFD700',  # 7 Regular Yellow
-            '#FFA07A',  # 8 Light Orange
-            '#FF8C00',  # 9 Orange
-            '#FA8072',  # 10 Salmon
-            '#B22222',  # 11 Brick Colored
-            '#8B0000',  # 12 Deep Blood Red
-            '#DB7093',  # 13 Pinkish Violet
-            '#800080'   # 14 Purple
+            '#4169E1', '#40E0D0', '#50C878', '#228B22', '#32CD32', '#FFFF00', '#FFD700',
+            '#FFA07A', '#FF8C00', '#FA8072', '#B22222', '#8B0000', '#DB7093', '#800080'
         ]
-        idxs = [0, 1, 3, 5, 7, 9, 11]  # 1,2,4,6,8,10,12 (0-based)
+        idxs = [0, 1, 3, 5, 7, 9, 11]
         cw_colors = [fgsm_colors[i] for i in idxs[:len(unique_cs)]]
         for c_val, color in zip(unique_cs, cw_colors):
             mask = np.array(analysis_results['all_params']) == c_val
-            ax2.scatter(np.array(analysis_results['all_l2_norms'])[mask], 
-                       np.array(analysis_results['all_remaining_prob'])[mask],
+            l2_vals = np.array(analysis_results['all_l2_norms'])[mask]
+            tcrr_vals = np.array(analysis_results['all_remaining_prob'])[mask]
+            l2_mask = l2_vals <= 9
+            ax2.scatter(l2_vals[l2_mask], tcrr_vals[l2_mask],
                        alpha=0.08, s=1, color=color, label=f'c = {c_val:.3g}')
         legend = ax2.legend(bbox_to_anchor=(0.95, 0.95), loc='upper right')
         for handle in legend.legend_handles:
             handle.set_sizes([50])
             handle.set_alpha(1.0)
         plt.setp(legend.get_texts(), color='black')
+        ax2.set_xlim(0, 9)  # Cap x-axis at 9 for CW point cloud
     else:
-        # For FGSM, use a custom color progression with balanced transitions
         unique_epsilons = sorted(set(analysis_results['all_params']))
-        # Create a custom colormap with balanced color distribution
         colors = [
-            '#4169E1',  # Royal Blue (brighter than deep cold blue)
-            '#40E0D0',  # Turquoise
-            '#50C878',  # Emerald Green
-            '#228B22',  # Forest Green
-            '#32CD32',  # Lime Green
-            '#FFFF00',  # Cool Yellow
-            '#FFD700',  # Regular Yellow
-            '#FFA07A',  # Light Orange
-            '#FF8C00',  # Orange
-            '#FA8072',  # Salmon
-            '#B22222',  # Brick Colored
-            '#8B0000',  # Deep Blood Red
-            '#DB7093',  # Pinkish Violet
-            '#800080'   # Purple
+            '#4169E1', '#40E0D0', '#50C878', '#228B22', '#32CD32', '#FFFF00', '#FFD700',
+            '#FFA07A', '#FF8C00', '#FA8072', '#B22222', '#8B0000', '#DB7093', '#800080'
         ]
         cmap = matplotlib.colors.LinearSegmentedColormap.from_list('custom', colors)
-        # Normalize epsilon values to [0,1] for colormap
         norm = plt.Normalize(min(unique_epsilons), max(unique_epsilons))
-        
-        # Plot each epsilon value separately with its color from the colormap
         for eps in unique_epsilons:
             mask = np.array(analysis_results['all_params']) == eps
             color = cmap(norm(eps))
             ax2.scatter(np.array(analysis_results['all_l2_norms'])[mask], 
                        np.array(analysis_results['all_remaining_prob'])[mask],
                        alpha=0.08, s=1, color=color, label=f'ε = {eps:.2f}')
-        
-        # Add legend inside the plot with larger markers
         legend = ax2.legend(bbox_to_anchor=(0.95, 0.95), loc='upper right')
-        # Make the legend markers larger and solid
         for handle in legend.legend_handles:
-            handle.set_sizes([50])  # Increase marker size in legend
-            handle.set_alpha(1.0)   # Make legend markers solid
+            handle.set_sizes([50])
+            handle.set_alpha(1.0)
         plt.setp(legend.get_texts(), color='black')
     
     ax2.set_xlabel('L2 Perturbation Size')
-    ax2.set_ylabel('TCCR')
+    ax2.set_ylabel('TCRR')
     ax2.set_title(f'{model_name} {attack_type.upper()}\nPoint Cloud')
     ax2.set_ylim(0, 1)  # Fix y-axis limits
-    ax2.set_xlim(0, max(analysis_results['all_l2_norms']))  # Fix x-axis to start at 0
+    if attack_type == 'cw':
+        ax2.set_xlim(0, 9)
+    else:
+        ax2.set_xlim(0, max(analysis_results['all_l2_norms']))
     
     # Plot 3: 2D Histogram
-    h3 = ax3.hist2d(
-        analysis_results['all_l2_norms'],
-        analysis_results['all_remaining_prob'],
-        bins=100,
-        cmap='plasma',
-        norm=LogNorm(vmin=1, vmax=None)
-    )
+    if attack_type == 'cw':
+        # Cap L2 values at 9 for fair comparison
+        l2_vals = np.array(analysis_results['all_l2_norms'])
+        tcrr_vals = np.array(analysis_results['all_remaining_prob'])
+        l2_mask = l2_vals <= 9
+        h3 = ax3.hist2d(
+            l2_vals[l2_mask],
+            tcrr_vals[l2_mask],
+            bins=100,
+            cmap='plasma',
+            norm=LogNorm(vmin=1, vmax=None)
+        )
+        ax3.set_xlim(0, 9)
+    else:
+        h3 = ax3.hist2d(
+            analysis_results['all_l2_norms'],
+            analysis_results['all_remaining_prob'],
+            bins=100,
+            cmap='plasma',
+            norm=LogNorm(vmin=1, vmax=None)
+        )
+        ax3.set_xlim(0, max(analysis_results['all_l2_norms']))
     ax3.set_xlabel('L2 Perturbation Size')
-    ax3.set_ylabel('TCCR')
+    ax3.set_ylabel('TCRR')
     ax3.set_title(f'{model_name} {attack_type.upper()}\nDensity Plot')
     ax3.set_ylim(0, 1)  # Fix y-axis limits
-    ax3.set_xlim(0, max(analysis_results['all_l2_norms']))  # Fix x-axis to start at 0
     cbar = plt.colorbar(h3[3], ax=ax3, label='Count (log scale)')
     cbar.ax.yaxis.label.set_color('black')
     cbar.ax.tick_params(colors='black')
@@ -247,7 +259,7 @@ def plot_results(analysis_results, model_name, attack_type):
     fig.patch.set_facecolor(bg_color)
     
     plt.tight_layout()
-    plt.savefig(f'results/{model_name}_{attack_type}_tccr.png', bbox_inches='tight', facecolor='white')
+    plt.savefig(f'results/{model_name}_{attack_type}_tcrr.png', bbox_inches='tight', facecolor='white')
     plt.close(fig)
 
 def main():
@@ -280,7 +292,7 @@ def main():
             for i, param in enumerate(analysis_results['params']):
                 print(f"{param_name}: {param:.3f} - RA: {analysis_results['robust_accuracies'][i]:.4f} ± {analysis_results['ra_stds'][i]:.4f}")
             
-            print("\nTCCR Summary:")
+            print("\nTCRR Summary:")
             print(f"Mean: {np.mean(analysis_results['all_remaining_prob']):.4f}")
             print(f"Median: {np.median(analysis_results['all_remaining_prob']):.4f}")
             print(f"Std: {np.std(analysis_results['all_remaining_prob']):.4f}")

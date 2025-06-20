@@ -59,9 +59,12 @@ def evaluate_transferability(src_model_name, tgt_model_name, attack_type, attack
     tgt_model.eval()
 
     # Setup attack (on source model)
-    if attack_type.lower() in ['fgsm', 'pgd']:
-        attack_cls = FGSM if attack_type.lower() == 'fgsm' else PGD
-        attack = attack_cls(src_model, device=device, epsilon=attack_param)
+    if attack_type.lower() == 'fgsm':
+        attack = FGSM(src_model, device=device, epsilon=attack_param)
+    elif attack_type.lower() == 'pgd':
+        steps = 10
+        alpha = attack_param / steps
+        attack = PGD(src_model, device=device, epsilon=attack_param, alpha=alpha, num_steps=steps)
     else:
         print("Initializing CW attack...")
         attack = CW(src_model, device=device, c=attack_param, max_iter=100)
@@ -136,18 +139,12 @@ if __name__ == "__main__":
     print(f"CUDA available: {torch.cuda.is_available()}")
     print("=====================\n")
 
-    # Use the same parameter values as in data/perturbation_analysis
-    fgsm_pgd_params = [0.01, 0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15, 0.17, 0.19, 0.21, 0.23, 0.25]
-    cw_params = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0]
+    # Use only PGD parameter values for transfer attacks
+    pgd_epsilons = [0.01, 0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15, 0.17, 0.19, 0.21, 0.23, 0.25]
 
     src_models = ['resnet50', 'vgg16']
     tgt_models = ['vgg16', 'resnet50']
-    attacks = []
-    for p in fgsm_pgd_params:
-        attacks.append(('fgsm', p))
-        attacks.append(('pgd', p))
-    for c in cw_params:
-        attacks.append(('cw', c))
+    attacks = [('pgd', eps) for eps in pgd_epsilons]
 
     for src_model in src_models:
         for tgt_model in tgt_models:
