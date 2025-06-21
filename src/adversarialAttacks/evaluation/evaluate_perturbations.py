@@ -128,11 +128,11 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
         # Store results for each image
         for i in range(x.size(0)):
             results.append({
-                'correct_classification': (pred_adv[i] == y[i]).item(),
-                'true_prob_before': true_prob_clean[i].item(),
-                'true_prob_after': true_prob_adv[i].item(),
-                'max_prob_before': max_prob_clean[i].item(),
-                'max_prob_after': max_prob_adv[i].item(),
+                'adv_correct_classification': (pred_adv[i] == y[i]).item(),
+                'clean_true_prob': true_prob_clean[i].item(),
+                'adv_true_prob': true_prob_adv[i].item(),
+                'clean_max_prob': max_prob_clean[i].item(),
+                'adv_max_prob': max_prob_adv[i].item(),
                 'model': model_name,
                 'attack': attack_type,
                 'attack_param': attack_param,
@@ -150,8 +150,8 @@ def evaluate_perturbations(model_name, attack_type, attack_param, data_dir, devi
             #print("\nPerturbation Statistics:")
             #print(f"Average L2 norm: {df['l2_norm'].mean():.4f}")
             #print(f"Average SSIM: {df['ssim'].mean():.4f}")
-            #print(f"Attack success rate: {(~df['correct_classification']).mean():.2%}")
-            #print(f"Average confidence drop: {(df['true_prob_before'] - df['true_prob_after']).mean():.4f}")
+            #print(f"Attack success rate: {(~df['adv_correct_classification']).mean():.2%}")
+            #print(f"Average confidence drop: {(df['clean_true_prob'] - df['adv_true_prob']).mean():.4f}")
     
     # Final save
     df = pd.DataFrame(results)

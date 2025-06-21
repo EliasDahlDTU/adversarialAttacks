@@ -109,11 +109,11 @@ def evaluate_transferability(src_model_name, tgt_model_name, attack_type, attack
 
         for i in range(x.size(0)):
             results.append({
-                'correct_classification_tgt': (pred_adv_tgt[i] == y[i]).item(),
-                'true_prob_before_src': true_prob_clean_src[i].item(),
-                'max_prob_before_src': max_prob_clean_src[i].item(),
-                'true_prob_after_tgt': true_prob_adv_tgt[i].item(),
-                'max_prob_after_tgt': max_prob_adv_tgt[i].item(),
+                'adv_correct_classification_tgt': (pred_adv_tgt[i] == y[i]).item(),
+                'clean_true_prob_src': true_prob_clean_src[i].item(),
+                'clean_max_prob_src': max_prob_clean_src[i].item(),
+                'adv_true_prob_tgt': true_prob_adv_tgt[i].item(),
+                'adv_max_prob_tgt': max_prob_adv_tgt[i].item(),
                 'model_src': src_model_name,
                 'model_tgt': tgt_model_name,
                 'attack': attack_type,

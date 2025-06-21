@@ -36,10 +36,10 @@ def load_attack_results(model_name, attack_type):
         
         # Store results
         results[param] = {
-            'true_prob_before': df['true_prob_before'].values,
-            'true_prob_after': df['true_prob_after'].values,
+            'clean_true_prob': df['clean_true_prob'].values,
+            'adv_true_prob': df['adv_true_prob'].values,
             'l2_norm': df['l2_norm'].values,
-            'correct_classification': df['correct_classification'].values
+            'adv_correct_classification': df['adv_correct_classification'].values
         }
     
     return results
@@ -59,8 +59,8 @@ def analyze_attack_results(results, attack_type):
         params.append(param)
         
         # Calculate TCCR as 1 - (p_clean-p_adv)/p_clean
-        true_prob_drops = data['true_prob_before'] - data['true_prob_after']
-        tccr = 1 - (true_prob_drops / data['true_prob_before'])
+        true_prob_drops = data['clean_true_prob'] - data['adv_true_prob']
+        tccr = 1 - (true_prob_drops / data['clean_true_prob'])
         
         # Filter out invalid values (where TCCR < 0 or > 1)
         valid_mask = (tccr >= 0) & (tccr <= 1)
@@ -71,8 +71,8 @@ def analyze_attack_results(results, attack_type):
         all_params.extend([param] * len(tccr))
         
         # Calculate Robust Accuracy
-        robust_accuracies.append(np.mean(data['correct_classification']))
-        ra_stds.append(np.std(data['correct_classification']))
+        robust_accuracies.append(np.mean(data['adv_correct_classification']))
+        ra_stds.append(np.std(data['adv_correct_classification']))
     
     return {
         'params': params,
