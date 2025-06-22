@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
 import glob
-import seaborn as sns
+#import seaborn as sns
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
-from scipy.stats import gaussian_kde
+#from scipy.stats import gaussian_kde
 import matplotlib.colors
 import matplotlib.lines as mlines
 from matplotlib.legend_handler import HandlerTuple
@@ -39,7 +39,8 @@ def load_attack_results(model_name, attack_type):
             'clean_true_prob': df['clean_true_prob'].values,
             'adv_true_prob': df['adv_true_prob'].values,
             'l2_norm': df['l2_norm'].values,
-            'adv_correct_classification': df['adv_correct_classification'].values
+            'adv_correct_classification': df['adv_correct_classification'].values,
+            'clean_correct_classification': df['clean_correct_classification'].values
         }
     
     return results
@@ -51,6 +52,7 @@ def analyze_attack_results(results, attack_type):
     all_params = []
     robust_accuracies = []
     ra_stds = []
+    ra_sample_sizes = []  # Track actual sample sizes used for RA calculation
     params = []
     param_name = 'Epsilon' if attack_type == 'fgsm' else 'c'
     
@@ -70,9 +72,23 @@ def analyze_attack_results(results, attack_type):
         all_l2_norms.extend(data['l2_norm'][valid_mask])
         all_params.extend([param] * len(tccr))
         
-        # Calculate Robust Accuracy
-        robust_accuracies.append(np.mean(data['adv_correct_classification']))
-        ra_stds.append(np.std(data['adv_correct_classification']))
+        # Calculate Robust Accuracy - only for images that were correctly classified when clean
+        clean_correct_mask = data['clean_correct_classification'] == True
+        ra_sample_size = np.sum(clean_correct_mask)  # Track actual sample size
+        ra_sample_sizes.append(ra_sample_size)
+        
+        if ra_sample_size > 0:
+            ra = np.mean(data['adv_correct_classification'][clean_correct_mask])
+        else:
+            ra = 0.0  # If no clean images were correct, RA is 0
+        robust_accuracies.append(ra)
+        
+        # Calculate RA std - only for images that were correctly classified when clean
+        if ra_sample_size > 0:
+            ra_std = np.std(data['adv_correct_classification'][clean_correct_mask])
+        else:
+            ra_std = 0.0
+        ra_stds.append(ra_std)
     
     return {
         'params': params,
@@ -80,7 +96,8 @@ def analyze_attack_results(results, attack_type):
         'all_l2_norms': all_l2_norms,
         'all_params': all_params,
         'robust_accuracies': robust_accuracies,
-        'ra_stds': ra_stds
+        'ra_stds': ra_stds,
+        'ra_sample_sizes': ra_sample_sizes  # Add sample sizes to return dict
     }
 
 def plot_results(analysis_results, model_name, attack_type):
@@ -110,9 +127,12 @@ def plot_results(analysis_results, model_name, attack_type):
         ax.title.set_color('black')
     
     # Plot 1: Combined metrics plot
-    # Calculate 95% CI for RA
-    ra_n = np.array([np.sum(np.array(analysis_results['all_params']) == p) for p in sorted_params])
-    ra_cis = 1.96 * sorted_ra_stds / np.sqrt(ra_n)
+    # Calculate 95% CI for RA using actual sample sizes used for RA calculation
+    sorted_ra_sample_sizes = np.array(analysis_results['ra_sample_sizes'])[sort_idx]
+    ra_cis = 1.96 * sorted_ra_stds / np.sqrt(sorted_ra_sample_sizes)
+    # Handle division by zero (when sample size is 0)
+    ra_cis = np.where(sorted_ra_sample_sizes > 0, ra_cis, 0.0)
+    
     ax1.errorbar(sorted_params, sorted_ra, 
                 yerr=ra_cis,
                 fmt='o-', color='red', linewidth=2,
@@ -174,53 +194,40 @@ def plot_results(analysis_results, model_name, attack_type):
                 artist.set_visible(False)
     
     # Plot 2: Scatter plot (point cloud)
-    if attack_type == 'cw':
-        unique_cs = sorted(set(analysis_results['all_params']))
-        fgsm_colors = [
-            '#4169E1', '#40E0D0', '#50C878', '#228B22', '#32CD32', '#FFFF00', '#FFD700',
-            '#FFA07A', '#FF8C00', '#FA8072', '#B22222', '#8B0000', '#DB7093', '#800080'
-        ]
-        idxs = [0, 1, 3, 5, 7, 9, 11]
-        cw_colors = [fgsm_colors[i] for i in idxs[:len(unique_cs)]]
-        for c_val, color in zip(unique_cs, cw_colors):
-            mask = np.array(analysis_results['all_params']) == c_val
+    unique_params = sorted(set(analysis_results['all_params']))
+    colors = [
+        '#4169E1', '#40E0D0', '#50C878', '#228B22', '#32CD32', '#FFFF00', '#FFD700',
+        '#FFA07A', '#FF8C00', '#FA8072', '#B22222', '#8B0000', '#DB7093', '#800080'
+    ]
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list('custom', colors)
+    norm = plt.Normalize(min(unique_params), max(unique_params))
+    
+    for param in unique_params:
+        mask = np.array(analysis_results['all_params']) == param
+        color = cmap(norm(param))
+        if attack_type == 'cw':
             l2_vals = np.array(analysis_results['all_l2_norms'])[mask]
             tcrr_vals = np.array(analysis_results['all_remaining_prob'])[mask]
             l2_mask = l2_vals <= 9
             ax2.scatter(l2_vals[l2_mask], tcrr_vals[l2_mask],
-                       alpha=0.08, s=1, color=color, label=f'c = {c_val:.3g}')
-        legend = ax2.legend(bbox_to_anchor=(0.95, 0.95), loc='upper right')
-        for handle in legend.legend_handles:
-            handle.set_sizes([50])
-            handle.set_alpha(1.0)
-        plt.setp(legend.get_texts(), color='black')
-        ax2.set_xlim(0, 9)  # Cap x-axis at 9 for CW point cloud
-    else:
-        unique_epsilons = sorted(set(analysis_results['all_params']))
-        colors = [
-            '#4169E1', '#40E0D0', '#50C878', '#228B22', '#32CD32', '#FFFF00', '#FFD700',
-            '#FFA07A', '#FF8C00', '#FA8072', '#B22222', '#8B0000', '#DB7093', '#800080'
-        ]
-        cmap = matplotlib.colors.LinearSegmentedColormap.from_list('custom', colors)
-        norm = plt.Normalize(min(unique_epsilons), max(unique_epsilons))
-        for eps in unique_epsilons:
-            mask = np.array(analysis_results['all_params']) == eps
-            color = cmap(norm(eps))
+                       alpha=0.08, s=1, color=color, label=f'{param_name} = {param:.3g}')
+        else:
             ax2.scatter(np.array(analysis_results['all_l2_norms'])[mask], 
                        np.array(analysis_results['all_remaining_prob'])[mask],
-                       alpha=0.08, s=1, color=color, label=f'ε = {eps:.2f}')
-        legend = ax2.legend(bbox_to_anchor=(0.95, 0.95), loc='upper right')
-        for handle in legend.legend_handles:
-            handle.set_sizes([50])
-            handle.set_alpha(1.0)
-        plt.setp(legend.get_texts(), color='black')
+                       alpha=0.08, s=1, color=color, label=f'{param_name} = {param:.2f}')
+    
+    legend = ax2.legend(bbox_to_anchor=(0.95, 0.95), loc='upper right')
+    for handle in legend.legend_handles:
+        handle.set_sizes([50])
+        handle.set_alpha(1.0)
+    plt.setp(legend.get_texts(), color='black')
     
     ax2.set_xlabel('L2 Perturbation Size')
     ax2.set_ylabel('TCRR')
     ax2.set_title(f'{model_name} {attack_type.upper()}\nPoint Cloud')
     ax2.set_ylim(0, 1)  # Fix y-axis limits
     if attack_type == 'cw':
-        ax2.set_xlim(0, 9)
+        ax2.set_xlim(0, 9)  # Cap x-axis at 9 for CW point cloud
     else:
         ax2.set_xlim(0, max(analysis_results['all_l2_norms']))
     
