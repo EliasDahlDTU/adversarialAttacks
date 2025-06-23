@@ -4,9 +4,12 @@ This project investigates the use of adversarial attacks as a tool for protectin
 
 ## Research Questions
 
-1. Which adversarial attack (FGSM, PGD, CW) causes the most significant performance drop in Convolutional Neural Networks?
-2. How generalizable are these attacks when trained on a specific model to other models trained on the same subset of data?
-3. How effective is adversarial training as a defense mechanism against these attacks?
+1. How efficiently does each adversarial attack (FGSM, PGD, CW) reduce the
+accuracy of the model relative to the size of the perturbation?
+2. How does each adversarial attack (FGSM, PGD, CW) impact the model’s
+confidence in the true class prediction (True Class Robust Ratio)? 
+3. How transferable are adversarial examples crafted for a specific CNN to anot-
+her CNN model, both trained on the same dataset?
 
 ## Project Structure
 
@@ -30,6 +33,7 @@ This project investigates the use of adversarial attacks as a tool for protectin
 │   
 ├── src/
 │   ├── analyze_results.py                          # Analysis and plotting of results
+│   ├── analyze_transferability.py                  # Analysis of transferability
 │   └── adversarialAttacks/
 │       ├── __init__.py
 │       ├── models.py                               # Model architectures and loading utilities
@@ -251,7 +255,7 @@ To evaluate the robustness of our models, we generate adversarial examples (AEs)
 
 4. **Benchmarking:**  
    - The results can be further analyzed and visualized using scripts like `src/analyze_results.py`, which compute robust accuracy and other metrics across different attack strengths.
-
+   - To test transferability run the script `src/analyze_transferability.py`
 ### Running the Attacks
 
 To benchmark a model against adversarial attacks, run:
